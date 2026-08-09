@@ -4,7 +4,7 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/**'],
+    ignores: ['dist/**', 'line-backend/**'],
     rules: {
       'no-console': 'warn',
       'react-hooks/exhaustive-deps': 'warn',

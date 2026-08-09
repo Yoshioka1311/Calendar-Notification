@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "calendar-notification-line-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "workers_dev": true,
+  "preview_urls": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "APP_TIME_ZONE": "Asia/Bangkok"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB"
+    }
+  ]
+}

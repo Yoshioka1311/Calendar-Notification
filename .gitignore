@@ -39,6 +39,7 @@ yarn-error.*
 # Cloudflare local state and secrets
 .dev.vars
 .dev.vars.*
+!.dev.vars.example
 .wrangler/
 
 # typescript
