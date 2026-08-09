@@ -82,7 +82,9 @@ function eventDraft(event: LineAcceptedEvent) {
     startDate: event.startDateTime.slice(0, 10),
     startTime: event.startDateTime.slice(11, 16),
     endTime: endTime || undefined,
-    category: EVENT_CATEGORIES.includes(event.category) ? event.category : detectEventCategory(event.title),
+    category: EVENT_CATEGORIES.includes(event.category) && event.category !== 'Other'
+      ? event.category
+      : detectEventCategory(event.title),
     notes: event.notes,
     reminderMinutesBefore: 1440,
   };
