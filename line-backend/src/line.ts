@@ -24,7 +24,18 @@ export async function verifyLineSignature(rawBody: string, signature: string, ch
   return crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(rawBody));
 }
 
-export async function replyToLine(replyToken: string, text: string, channelAccessToken: string): Promise<boolean> {
+export type LineReplyMessage = {
+  type: 'text';
+  text: string;
+  quickReply?: {
+    items: Array<{
+      type: 'action';
+      action: { type: 'postback'; label: string; data: string; displayText: string };
+    }>;
+  };
+};
+
+export async function replyToLine(replyToken: string, messages: LineReplyMessage[], channelAccessToken: string): Promise<boolean> {
   const response = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     headers: {
@@ -33,7 +44,7 @@ export async function replyToLine(replyToken: string, text: string, channelAcces
     },
     body: JSON.stringify({
       replyToken,
-      messages: [{ type: 'text', text: text.slice(0, 5000) }],
+      messages: messages.slice(0, 5).map((message) => ({ ...message, text: message.text.slice(0, 5000) })),
     }),
   });
   return response.ok;

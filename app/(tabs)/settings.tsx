@@ -9,14 +9,19 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useEvents } from '@/contexts/EventContext';
 import { useToast } from '@/contexts/ToastContext';
 import { getNotificationPermission, requestNotificationPermission } from '@/services/notifications';
+import { lineIntegrationService } from '@/services/lineIntegrationService';
 import { REMINDER_OPTIONS, reminderLabel } from '@/types/event';
+import type { LineConnectionStatus, LinePairingSession } from '@/types/lineIntegration';
 import type { AppLanguage, ThemeMode, WeekStart } from '@/types/settings';
 
 export default function SettingsScreen() {
   const { settings, theme, updateSettings } = useSettings();
-  const { simulateIncomingLineEvent } = useEvents();
+  const { simulateIncomingLineEvent, syncLineEvents } = useEvents();
   const { showToast } = useToast();
   const [permission, setPermission] = useState(false);
+  const [lineStatus, setLineStatus] = useState<LineConnectionStatus>('not-started');
+  const [pairing, setPairing] = useState<LinePairingSession>();
+  const [lineBusy, setLineBusy] = useState(false);
 
   const refreshPermission = async () => {
     if (Platform.OS === 'web') return;
@@ -25,7 +30,49 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     if (Platform.OS !== 'web') void getNotificationPermission().then(setPermission);
+    void lineIntegrationService.getLineConnectionStatus()
+      .then(setLineStatus)
+      .catch(() => undefined);
   }, []);
+
+  const refreshLineStatus = async (notify = true) => {
+    setLineBusy(true);
+    try {
+      const status = await lineIntegrationService.getLineConnectionStatus();
+      setLineStatus(status);
+      if (status === 'connected') setPairing(undefined);
+      if (notify) showToast(status === 'connected' ? 'LINE connected' : 'Waiting for LINE', status === 'connected' ? 'Confirmed events can now sync to this device' : 'Send the LINK code to the bot first');
+    } catch (caught) {
+      if (notify) showToast('Unable to check LINE', caught instanceof Error ? caught.message : 'Please try again.');
+    } finally {
+      setLineBusy(false);
+    }
+  };
+
+  const createPairingCode = async () => {
+    setLineBusy(true);
+    try {
+      const session = await lineIntegrationService.startLinePairing();
+      setPairing(session);
+      setLineStatus('waiting');
+    } catch (caught) {
+      showToast('Unable to create code', caught instanceof Error ? caught.message : 'Please try again.');
+    } finally {
+      setLineBusy(false);
+    }
+  };
+
+  const runLineSync = async () => {
+    setLineBusy(true);
+    try {
+      const result = await syncLineEvents();
+      showToast(result.imported ? 'LINE events added' : 'Calendar is up to date', result.imported ? `${result.imported} event(s) imported with a 1-day reminder` : 'No new confirmed events');
+    } catch (caught) {
+      showToast('LINE sync failed', caught instanceof Error ? caught.message : 'Please try again.');
+    } finally {
+      setLineBusy(false);
+    }
+  };
 
   const enableNotifications = async () => {
     const granted = await requestNotificationPermission();
@@ -97,17 +144,29 @@ export default function SettingsScreen() {
         />
       </SettingsSection>
 
-      <SettingsSection title="FUTURE INTEGRATION">
-        <SettingRow label="LINE" description="Phase 2 integration has not been connected" value="Not connected" />
-        <View style={styles.comingSoonRow}>
-          <View style={styles.comingCopy}>
-            <Text style={[styles.rowLabel, { color: theme.colors.text }]}>LINE connection</Text>
-            <Text style={[styles.rowDescription, { color: theme.colors.textMuted }]}>Automatic Thai and English event detection</Text>
-          </View>
-          <View style={[styles.comingBadge, { backgroundColor: theme.colors.primarySoft }]}>
-            <Text style={[styles.comingText, { color: theme.colors.primary }]}>COMING SOON</Text>
-          </View>
-        </View>
+      <SettingsSection title="LINE INTEGRATION">
+        <SettingRow
+          label="LINE connection"
+          description="Confirmed LINE events sync to this device"
+          value={{ 'not-started': 'Not connected', waiting: 'Waiting for LINK', connected: 'Connected' }[lineStatus]}
+          valueColor={lineStatus === 'connected' ? theme.colors.success : theme.colors.warning}
+        />
+        {lineStatus !== 'connected' ? (
+          <>
+            <Text style={[styles.pairingHelp, { color: theme.colors.textMuted }]}>1. Create a secure one-time code.{`\n`}2. Send LINK followed by the code to the Bousu LINE chat.{`\n`}3. Return here and check the connection.</Text>
+            {pairing ? (
+              <View style={[styles.pairingBox, { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border }]}>
+                <Text style={[styles.pairingLabel, { color: theme.colors.textMuted }]}>SEND THIS MESSAGE IN LINE</Text>
+                <Text selectable style={[styles.pairingCode, { color: theme.colors.primary }]}>LINK {pairing.pairingCode}</Text>
+                <Text style={[styles.pairingExpiry, { color: theme.colors.textMuted }]}>Expires in 10 minutes and can be used once.</Text>
+              </View>
+            ) : null}
+            <Button onPress={() => void createPairingCode()} loading={lineBusy} style={styles.inlineButton}>{pairing ? 'Create a new code' : 'Create pairing code'}</Button>
+            {lineStatus === 'waiting' ? <Button variant="secondary" onPress={() => void refreshLineStatus()} loading={lineBusy} style={styles.inlineButton}>I sent LINK — check connection</Button> : null}
+          </>
+        ) : (
+          <Button onPress={() => void runLineSync()} loading={lineBusy} style={styles.inlineButton}>Sync confirmed LINE events</Button>
+        )}
         {__DEV__ ? (
           <View style={styles.simulator}>
             <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>Development only · Uses structured mock data and no LINE API</Text>
@@ -200,10 +259,11 @@ const styles = StyleSheet.create({
   segmented: { flexDirection: 'row', borderWidth: 1, borderRadius: 13, padding: 3, marginTop: 5 },
   segment: { flex: 1, minWidth: 0, minHeight: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
   segmentText: { fontSize: 11, fontWeight: '700' },
-  comingSoonRow: { flexDirection: 'row', alignItems: 'center', gap: 10, opacity: 0.82 },
-  comingCopy: { flex: 1 },
-  comingBadge: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999 },
-  comingText: { fontSize: 8, fontWeight: '800', letterSpacing: 0.6 },
+  pairingHelp: { fontSize: 12, lineHeight: 19, marginBottom: 12 },
+  pairingBox: { borderWidth: 1, borderRadius: 13, padding: 14, marginBottom: 12, alignItems: 'center' },
+  pairingLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1, marginBottom: 8 },
+  pairingCode: { fontSize: 21, fontWeight: '800', letterSpacing: 1.2 },
+  pairingExpiry: { fontSize: 10, marginTop: 7 },
   simulator: { marginTop: 14 },
   simulatorNote: { fontSize: 10, lineHeight: 15, marginBottom: 8 },
   version: { textAlign: 'center', fontSize: 11, marginTop: 2, marginBottom: 14 },

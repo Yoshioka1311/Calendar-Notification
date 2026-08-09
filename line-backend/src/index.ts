@@ -1,14 +1,32 @@
-import { isWebhookProcessed, markWebhookProcessed, saveIncomingEvent } from './database';
-import { replyToLine, verifyLineSignature } from './line';
+import {
+  authenticateDevice,
+  allowPairingAttempt,
+  completePairing,
+  decideIncomingEvent,
+  isLineUserPaired,
+  isWebhookProcessed,
+  listAcceptedEvents,
+  markEventDelivered,
+  markWebhookProcessed,
+  saveIncomingEvent,
+  upsertPairingSession,
+} from './database';
+import { randomPairingCode, randomToken, sha256 } from './crypto';
+import { replyToLine, verifyLineSignature, type LineReplyMessage } from './line';
 import { parseEventMessage } from './parser';
-import type { Env, IncomingEventRecord, LineWebhookBody, LineWebhookEvent } from './types';
+import type { AppDevice, Env, IncomingEventRecord, LineWebhookBody, LineWebhookEvent } from './types';
 
 const MAX_BODY_BYTES = 256 * 1024;
+const API_BODY_BYTES = 8 * 1024;
+const PAIRING_LIFETIME_MS = 10 * 60 * 1000;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'no-store',
       'Content-Type': 'application/json; charset=utf-8',
       'X-Content-Type-Options': 'nosniff',
@@ -16,18 +34,32 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-async function readLimitedBody(request: Request): Promise<string> {
+async function readLimitedBody(request: Request, limit = MAX_BODY_BYTES): Promise<string> {
   const declaredLength = Number(request.headers.get('content-length') ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) throw new Error('BODY_TOO_LARGE');
+  if (Number.isFinite(declaredLength) && declaredLength > limit) throw new Error('BODY_TOO_LARGE');
   const buffer = await request.arrayBuffer();
-  if (buffer.byteLength > MAX_BODY_BYTES) throw new Error('BODY_TOO_LARGE');
+  if (buffer.byteLength > limit) throw new Error('BODY_TOO_LARGE');
   return new TextDecoder().decode(buffer);
+}
+
+async function readJsonObject(request: Request): Promise<Record<string, unknown> | undefined> {
+  if (!request.headers.get('content-type')?.toLowerCase().includes('application/json')) return undefined;
+  try {
+    const value = JSON.parse(await readLimitedBody(request, API_BODY_BYTES));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isWebhookBody(value: unknown): value is LineWebhookBody {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as { events?: unknown };
   return Array.isArray(candidate.events) && candidate.events.length <= 100;
+}
+
+function textMessage(text: string): LineReplyMessage {
+  return { type: 'text', text };
 }
 
 function failureMessage(): string {
@@ -39,81 +71,134 @@ function failureMessage(): string {
   ].join('\n');
 }
 
-function successMessage(event: ReturnType<typeof parseEventMessage>, created: boolean): string {
-  if (!created) return 'กิจกรรมนี้ถูกส่งเข้าระบบแล้ว จึงไม่สร้างรายการซ้ำ';
+function confirmationMessage(event: ReturnType<typeof parseEventMessage>, eventId: string): LineReplyMessage {
   const date = event.localDate.split('-').reverse().join('/');
   const time = event.endTime ? `${event.startTime}-${event.endTime}` : event.startTime;
-  return [
-    'ตรวจพบกิจกรรม',
-    `ชื่อ: ${event.title}`,
-    `วันที่: ${date}`,
-    `เวลา: ${time}`,
-    'สถานะ: รอยืนยันใน Calendar App',
-  ].join('\n');
+  return {
+    type: 'text',
+    text: ['ตรวจพบกิจกรรม', `ชื่อ: ${event.title}`, `วันที่: ${date}`, `เวลา: ${time}`, '', 'ยืนยันเพิ่มลง Calendar App หรือไม่?'].join('\n'),
+    quickReply: {
+      items: [
+        {
+          type: 'action',
+          action: { type: 'postback', label: 'ยืนยัน', data: `action=confirm&eventId=${eventId}`, displayText: 'ยืนยันกิจกรรม' },
+        },
+        {
+          type: 'action',
+          action: { type: 'postback', label: 'ไม่เพิ่ม', data: `action=ignore&eventId=${eventId}`, displayText: 'ไม่เพิ่มกิจกรรม' },
+        },
+      ],
+    },
+  };
 }
 
-async function replyIfPossible(event: LineWebhookEvent, text: string, env: Env): Promise<void> {
+async function replyIfPossible(event: LineWebhookEvent, messages: LineReplyMessage[], env: Env): Promise<void> {
   if (!event.replyToken || !env.LINE_CHANNEL_ACCESS_TOKEN) return;
-  const sent = await replyToLine(event.replyToken, text, env.LINE_CHANNEL_ACCESS_TOKEN).catch(() => false);
+  const sent = await replyToLine(event.replyToken, messages, env.LINE_CHANNEL_ACCESS_TOKEN).catch(() => false);
   if (!sent) console.warn('LINE reply was not accepted.', { webhookEventId: event.webhookEventId });
+}
+
+async function handlePairingCommand(event: LineWebhookEvent, lineUserId: string, text: string, env: Env): Promise<boolean> {
+  const match = /^LINK\s+([A-Z2-9]{8})$/i.exec(text);
+  if (!match) return false;
+  const linked = await completePairing(env.DB, await sha256(match[1]!.toUpperCase()), lineUserId);
+  await replyIfPossible(event, [textMessage(linked
+    ? 'เชื่อมต่อ Calendar App สำเร็จแล้ว กิจกรรมที่ยืนยันจะเข้าสู่แอปเมื่อเปิดหรือกดซิงก์'
+    : 'รหัสเชื่อมต่อไม่ถูกต้องหรือหมดอายุแล้ว กรุณาสร้างรหัสใหม่ในหน้า Settings ของ Calendar App')], env);
+  return true;
+}
+
+async function handlePostback(event: LineWebhookEvent, env: Env): Promise<void> {
+  const lineUserId = event.source?.userId;
+  const values = new URLSearchParams(event.postback?.data ?? '');
+  const action = values.get('action');
+  const eventId = values.get('eventId');
+  if (!lineUserId || !eventId || !/^[0-9a-f-]{36}$/i.test(eventId) || !['confirm', 'ignore'].includes(action ?? '')) {
+    await replyIfPossible(event, [textMessage('คำสั่งนี้ไม่ถูกต้อง กรุณาส่งกิจกรรมใหม่อีกครั้ง')], env);
+    return;
+  }
+  const decision = action === 'confirm' ? 'accepted' : 'ignored';
+  const result = await decideIncomingEvent(env.DB, eventId, lineUserId, decision);
+  if (result === 'not-found') {
+    await replyIfPossible(event, [textMessage('ไม่พบกิจกรรมนี้ หรือกิจกรรมไม่ได้เป็นของบัญชี LINE นี้')], env);
+    return;
+  }
+  if (result === 'already-decided') {
+    await replyIfPossible(event, [textMessage('กิจกรรมนี้ได้รับการตอบแล้ว จึงไม่มีการเปลี่ยนแปลงซ้ำ')], env);
+    return;
+  }
+  if (decision === 'ignored') {
+    await replyIfPossible(event, [textMessage('ไม่เพิ่มกิจกรรมนี้แล้ว')], env);
+    return;
+  }
+  const paired = await isLineUserPaired(env.DB, lineUserId);
+  await replyIfPossible(event, [textMessage(paired
+    ? 'ยืนยันแล้ว กิจกรรมพร้อมเข้าสู่ Calendar App เมื่อเปิดแอปหรือกดซิงก์'
+    : 'ยืนยันแล้ว แต่ยังไม่ได้เชื่อม Calendar App กรุณาเปิด Settings ในแอป สร้างรหัส แล้วส่ง LINK ตามด้วยรหัสในแชทนี้')], env);
 }
 
 async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
   if (!event.webhookEventId || event.webhookEventId.length > 200) return;
   if (await isWebhookProcessed(env.DB, event.webhookEventId)) return;
 
-  if (event.type !== 'message' || event.message?.type !== 'text') {
-    await replyIfPossible(event, 'รองรับเฉพาะข้อความตัวอักษรสำหรับสร้างกิจกรรม', env);
-    await markWebhookProcessed(env.DB, event.webhookEventId, event.type || 'unknown');
-    return;
-  }
-
-  const originalText = event.message.text?.trim() ?? '';
-  const lineUserId = event.source?.userId;
-  const messageId = event.message.id;
-  if (!lineUserId || !messageId || !originalText || originalText.length > 5000) {
-    await replyIfPossible(event, failureMessage(), env);
-    await markWebhookProcessed(env.DB, event.webhookEventId, event.type);
-    return;
-  }
-
   try {
-    const parsed = parseEventMessage(originalText);
-    const externalEventId = `line:${event.webhookEventId}`;
-    const record: IncomingEventRecord = {
-      ...parsed,
-      id: crypto.randomUUID(),
-      webhookEventId: event.webhookEventId,
-      externalEventId,
-      lineUserId,
-      messageId,
-      originalText,
-      notes: 'Created from LINE message',
-    };
-    const created = await saveIncomingEvent(env.DB, record);
-    await replyIfPossible(event, successMessage(parsed, created), env);
-  } catch {
-    await replyIfPossible(event, failureMessage(), env);
+    if (event.type === 'postback') {
+      await handlePostback(event, env);
+      return;
+    }
+    if (event.type !== 'message' || event.message?.type !== 'text') {
+      await replyIfPossible(event, [textMessage('รองรับเฉพาะข้อความตัวอักษรสำหรับสร้างกิจกรรม')], env);
+      return;
+    }
+
+    const originalText = event.message.text?.trim() ?? '';
+    const lineUserId = event.source?.userId;
+    const messageId = event.message.id;
+    if (!lineUserId || !messageId || !originalText || originalText.length > 5000) {
+      await replyIfPossible(event, [textMessage(failureMessage())], env);
+      return;
+    }
+    if (await handlePairingCommand(event, lineUserId, originalText, env)) return;
+
+    try {
+      const parsed = parseEventMessage(originalText);
+      const record: IncomingEventRecord = {
+        ...parsed,
+        id: crypto.randomUUID(),
+        webhookEventId: event.webhookEventId,
+        externalEventId: `line:${event.webhookEventId}`,
+        lineUserId,
+        messageId,
+        originalText,
+        notes: 'Created from LINE message',
+      };
+      const created = await saveIncomingEvent(env.DB, record);
+      await replyIfPossible(event, [created
+        ? confirmationMessage(parsed, record.id)
+        : textMessage('กิจกรรมนี้ถูกส่งเข้าระบบแล้ว จึงไม่สร้างรายการซ้ำ')], env);
+    } catch {
+      await replyIfPossible(event, [textMessage(failureMessage())], env);
+    }
+  } finally {
+    await markWebhookProcessed(env.DB, event.webhookEventId, event.type || 'unknown');
   }
-  await markWebhookProcessed(env.DB, event.webhookEventId, event.type);
 }
 
 async function handleWebhook(request: Request, env: Env): Promise<Response> {
   if (!env.LINE_CHANNEL_SECRET) return json({ error: 'Service is not configured.' }, 503);
-  const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';
-  if (!contentType.includes('application/json')) return json({ error: 'Content-Type must be application/json.' }, 415);
-
+  if (!request.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+    return json({ error: 'Content-Type must be application/json.' }, 415);
+  }
   let rawBody: string;
   try {
     rawBody = await readLimitedBody(request);
-  } catch (caught) {
-    return json({ error: caught instanceof Error && caught.message === 'BODY_TOO_LARGE' ? 'Request is too large.' : 'Invalid request.' }, 413);
+  } catch {
+    return json({ error: 'Request is too large.' }, 413);
   }
   const signature = request.headers.get('x-line-signature');
   if (!signature || !(await verifyLineSignature(rawBody, signature, env.LINE_CHANNEL_SECRET))) {
     return json({ error: 'Invalid signature.' }, 401);
   }
-
   let payload: unknown;
   try {
     payload = JSON.parse(rawBody);
@@ -121,19 +206,65 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     return json({ error: 'Invalid JSON.' }, 400);
   }
   if (!isWebhookBody(payload)) return json({ error: 'Invalid webhook payload.' }, 400);
-
   await Promise.all(payload.events.map((event) => processEvent(event, env)));
   return json({ ok: true });
+}
+
+async function authenticate(request: Request, env: Env): Promise<AppDevice | undefined> {
+  const match = /^Bearer\s+([a-f0-9]{64})$/i.exec(request.headers.get('authorization') ?? '');
+  return match ? authenticateDevice(env.DB, await sha256(match[1]!)) : undefined;
+}
+
+async function startPairing(request: Request, env: Env): Promise<Response> {
+  const clientAddress = request.headers.get('cf-connecting-ip') ?? 'local-development';
+  if (!(await allowPairingAttempt(env.DB, await sha256(`pairing:${clientAddress}`), Date.now()))) {
+    return json({ error: 'Too many pairing attempts. Please try again later.' }, 429);
+  }
+  const body = await readJsonObject(request);
+  const installationId = typeof body?.installationId === 'string' ? body.installationId.trim() : '';
+  const platform = typeof body?.platform === 'string' ? body.platform.slice(0, 20) : undefined;
+  if (!/^[0-9a-f-]{36}$/i.test(installationId)) return json({ error: 'Invalid installation ID.' }, 400);
+  const token = randomToken();
+  const pairingCode = randomPairingCode();
+  const expiresAt = new Date(Date.now() + PAIRING_LIFETIME_MS).toISOString();
+  await upsertPairingSession(env.DB, {
+    installationId,
+    tokenHash: await sha256(token),
+    codeHash: await sha256(pairingCode),
+    expiresAt,
+    platform,
+  });
+  return json({ token, pairingCode, expiresAt });
+}
+
+async function handleAppApi(request: Request, env: Env, pathname: string): Promise<Response> {
+  if (request.method === 'POST' && pathname === '/api/devices/pairing/start') return startPairing(request, env);
+  const device = await authenticate(request, env);
+  if (!device) return json({ error: 'Unauthorized.' }, 401);
+  if (request.method === 'GET' && pathname === '/api/devices/me') {
+    return json({ connected: Boolean(device.lineUserId) });
+  }
+  if (request.method === 'GET' && pathname === '/api/events/accepted') {
+    return json({ events: device.lineUserId ? await listAcceptedEvents(env.DB, device.lineUserId) : [] });
+  }
+  const importedMatch = request.method === 'POST' ? /^\/api\/events\/([0-9a-f-]{36})\/imported$/i.exec(pathname) : null;
+  if (importedMatch && device.lineUserId) {
+    const updated = await markEventDelivered(env.DB, importedMatch[1]!, device.lineUserId);
+    return updated ? json({ ok: true }) : json({ error: 'Event not found.' }, 404);
+  }
+  return json({ error: 'Not found.' }, 404);
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (request.method === 'OPTIONS') return json({ ok: true });
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
       return json({ service: 'calendar-notification-line-api', status: 'ok', timeZone: env.APP_TIME_ZONE });
     }
-    if (request.method === 'POST' && url.pathname === '/api/line/webhook') {
-      return handleWebhook(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/line/webhook') return handleWebhook(request, env);
+    if (url.pathname.startsWith('/api/devices/') || url.pathname.startsWith('/api/events/')) {
+      return handleAppApi(request, env, url.pathname);
     }
     return json({ error: 'Not found.' }, 404);
   },

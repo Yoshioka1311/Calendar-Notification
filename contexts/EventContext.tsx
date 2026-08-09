@@ -1,4 +1,5 @@
-import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import {
   eventService,
@@ -10,6 +11,8 @@ import {
 } from '@/services/incomingEventService';
 import type { CalendarEvent, EventDraft } from '@/types/event';
 import type { IncomingEventPayload } from '@/types/incomingEvent';
+import { lineIntegrationService } from '@/services/lineIntegrationService';
+import type { LineSyncResult } from '@/types/lineIntegration';
 import { sortEvents } from '@/utils/date';
 
 type EventContextValue = {
@@ -26,6 +29,7 @@ type EventContextValue = {
   acceptIncomingEvent: (draft?: EventDraft) => Promise<EventSaveResult>;
   dismissIncomingEvent: () => void;
   reload: () => Promise<void>;
+  syncLineEvents: () => Promise<LineSyncResult>;
 };
 
 const EventContext = createContext<EventContextValue | null>(null);
@@ -35,6 +39,7 @@ export function EventProvider({ children }: PropsWithChildren) {
   const [incomingEvent, setIncomingEvent] = useState<IncomingEventPayload>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
+  const syncingLine = useRef(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -51,6 +56,26 @@ export function EventProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  const syncLineEvents = useCallback(async (): Promise<LineSyncResult> => {
+    if (syncingLine.current) return { imported: 0, duplicates: 0 };
+    syncingLine.current = true;
+    try {
+      const result = await lineIntegrationService.syncLineEvents();
+      if (result.imported > 0 || result.duplicates > 0) setEvents(await eventService.getEvents());
+      return result;
+    } finally {
+      syncingLine.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    void syncLineEvents().catch(() => undefined);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void syncLineEvents().catch(() => undefined);
+    });
+    return () => subscription.remove();
+  }, [syncLineEvents]);
 
   const createEvent = useCallback(async (draft: EventDraft): Promise<EventSaveResult> => {
     const result = await eventService.createEvent({ ...draft, source: 'manual' });
@@ -109,6 +134,7 @@ export function EventProvider({ children }: PropsWithChildren) {
       acceptIncomingEvent,
       dismissIncomingEvent,
       reload,
+      syncLineEvents,
     }),
     [
       acceptIncomingEvent,
@@ -122,6 +148,7 @@ export function EventProvider({ children }: PropsWithChildren) {
       reload,
       removeEvent,
       simulateIncomingLineEvent,
+      syncLineEvents,
     ],
   );
 

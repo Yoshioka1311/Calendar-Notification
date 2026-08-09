@@ -1,6 +1,8 @@
 # Calendar Notification LINE API
 
-Cloudflare Worker for receiving LINE Messaging API webhooks. It verifies every webhook signature before parsing, stores pending events in D1, prevents duplicate webhook delivery, and replies with a detected event summary.
+Cloudflare Worker for receiving LINE Messaging API webhooks. It verifies every webhook signature before parsing, stores events in D1, prevents duplicate webhook delivery, and asks the user to confirm or ignore each detected event with LINE quick-reply buttons.
+
+The Expo app creates a one-time, 8-character pairing code in Settings. Send `LINK CODE` to the LINE bot within 10 minutes. Confirmed events are then imported when the app opens or the user taps sync, and the app schedules its normal one-day local reminder.
 
 ## Supported message formats
 
@@ -18,7 +20,7 @@ All parsed date-times are stored with the Bangkok offset (`+07:00`). Free-form N
 Use these settings when importing the repository:
 
 ```text
-Project name: calendar-notification-line-api
+Project name: calendar-notification
 Root directory: line-backend
 Build command: (leave empty)
 Deploy command: npm run deploy
@@ -39,7 +41,7 @@ Never add their values to GitHub, `wrangler.jsonc`, or the Expo application.
 Use the deployed webhook URL in LINE Developers:
 
 ```text
-https://calendar-notification-line-api.<account>.workers.dev/api/line/webhook
+https://calendar-notification.<account>.workers.dev/api/line/webhook
 ```
 
 Click **Verify**, enable **Use webhook**, and enable **Webhook redelivery**.

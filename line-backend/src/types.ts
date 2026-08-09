@@ -27,6 +27,25 @@ export interface LineWebhookEvent {
     id?: string;
     text?: string;
   };
+  postback?: {
+    data?: string;
+  };
+}
+
+export interface AppDevice {
+  id: string;
+  installationId: string;
+  lineUserId?: string;
+}
+
+export interface AcceptedEvent {
+  id: string;
+  externalEventId: string;
+  title: string;
+  startDateTime: string;
+  endDateTime?: string;
+  notes?: string;
+  originalText: string;
 }
 
 export interface ParsedIncomingEvent {
