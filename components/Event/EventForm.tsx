@@ -27,6 +27,7 @@ import {
 } from '@/types/event';
 import type { IncomingEventPayload } from '@/types/incomingEvent';
 import { fromDateKey, isValidTime, toDateKey, toTimeKey } from '@/utils/date';
+import { detectEventCategory } from '@/utils/eventCategory';
 
 type PickerMode = 'date' | 'time' | 'endTime' | null;
 type EventFormProps = {
@@ -46,7 +47,8 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
   const [date, setDate] = useState(initialDateKey);
   const [time, setTime] = useState(event?.startTime ?? incomingDraft?.startTime ?? '09:00');
   const [endTime, setEndTime] = useState(event?.endTime ?? incomingDraft?.endTime ?? '');
-  const [category, setCategory] = useState<EventCategory>(event?.category ?? incomingDraft?.category ?? 'Personal');
+  const [category, setCategory] = useState<EventCategory>(event?.category ?? incomingDraft?.category ?? 'Other');
+  const [categoryManuallySelected, setCategoryManuallySelected] = useState(Boolean(event || incomingDraft));
   const [notes, setNotes] = useState(event?.notes ?? incomingDraft?.notes ?? '');
   const [reminder, setReminder] = useState(event?.reminderMinutesBefore ?? incomingDraft?.reminderMinutesBefore ?? settings.defaultReminderMinutes);
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
@@ -123,7 +125,10 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
           placeholder="Project presentation"
           placeholderTextColor={theme.colors.textMuted}
           value={title}
-          onChangeText={setTitle}
+          onChangeText={(value) => {
+            setTitle(value);
+            if (!categoryManuallySelected) setCategory(detectEventCategory(value));
+          }}
           returnKeyType="next"
           style={inputStyle}
         />
@@ -173,7 +178,10 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
                 key={item}
                 accessibilityRole="button"
                 accessibilityState={{ selected }}
-                onPress={() => setCategory(item)}
+                onPress={() => {
+                  setCategory(item);
+                  setCategoryManuallySelected(true);
+                }}
                 style={[styles.chip, { backgroundColor: selected ? color : theme.colors.surfaceElevated, borderColor: selected ? color : theme.colors.border }]}>
                 <View style={[styles.categoryDot, { backgroundColor: selected ? '#FFFFFF' : color }]} />
                 <Text style={[styles.chipText, { color: selected ? '#FFFFFF' : theme.colors.text }]}>{item}</Text>

@@ -26,10 +26,10 @@ export async function saveIncomingEvent(db: D1Database, event: IncomingEventReco
     INSERT OR IGNORE INTO incoming_events (
       id, webhook_event_id, external_event_id, line_user_id, message_id,
       original_text, title, start_date_time, end_date_time, notes,
-      source, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'line', 'pending', ?, ?)
+      category, source, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'line', 'pending', ?, ?)
   `).bind(event.id, event.webhookEventId, event.externalEventId, event.lineUserId, event.messageId,
-    event.originalText, event.title, event.startDateTime, event.endDateTime ?? null, event.notes, now, now).run();
+    event.originalText, event.title, event.startDateTime, event.endDateTime ?? null, event.notes, event.category, now, now).run();
   return (result.meta.changes ?? 0) > 0;
 }
 
@@ -125,13 +125,13 @@ export async function isLineUserPaired(db: D1Database, lineUserId: string): Prom
 
 export async function listAcceptedEvents(db: D1Database, lineUserId: string): Promise<AcceptedEvent[]> {
   const result = await db.prepare(`
-    SELECT id, external_event_id, title, start_date_time, end_date_time, notes, original_text
+    SELECT id, external_event_id, title, start_date_time, end_date_time, notes, original_text, category
     FROM incoming_events
     WHERE line_user_id = ? AND status = 'accepted' AND delivered_at IS NULL
     ORDER BY created_at ASC LIMIT 100
   `).bind(lineUserId).all<{
     id: string; external_event_id: string; title: string; start_date_time: string;
-    end_date_time: string | null; notes: string | null; original_text: string;
+    end_date_time: string | null; notes: string | null; original_text: string; category: AcceptedEvent['category'];
   }>();
   return result.results.map((row) => ({
     id: row.id,
@@ -141,6 +141,7 @@ export async function listAcceptedEvents(db: D1Database, lineUserId: string): Pr
     endDateTime: row.end_date_time ?? undefined,
     notes: row.notes ?? undefined,
     originalText: row.original_text,
+    category: row.category,
   }));
 }
 

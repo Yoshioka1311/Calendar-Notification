@@ -1,4 +1,5 @@
 import type { ParsedIncomingEvent } from './types';
+import { detectEventCategory } from './category.ts';
 
 const THAI_MONTHS: Record<string, number> = {
   มกราคม: 1,
@@ -84,6 +85,7 @@ function buildResult(parts: Parts): ParsedIncomingEvent {
     localDate,
     startTime: parts.startTime,
     endTime: parts.endTime,
+    category: detectEventCategory(title),
   };
 }
 

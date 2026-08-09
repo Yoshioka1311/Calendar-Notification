@@ -15,6 +15,8 @@ The Expo app creates a one-time, 8-character pairing code in Settings. Send `LIN
 
 All parsed date-times are stored with the Bangkok offset (`+07:00`). Free-form NLP such as `ประชุมพรุ่งนี้บ่ายสอง` is intentionally rejected until a later parser is implemented.
 
+Event titles are categorized automatically as `Personal`, `Work`, `School`, `Meeting`, `Health`, `Important`, or `Other` using fixed Thai and English keyword rules. `Important` has the highest priority when a title matches more than one category. The detected category is shown in the LINE confirmation and sent to the app for color coding.
+
 ## Cloudflare Git deployment
 
 Use these settings when importing the repository:

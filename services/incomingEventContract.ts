@@ -1,4 +1,4 @@
-import type { EventDraft } from '@/types/event';
+import { EVENT_CATEGORIES, type EventDraft } from '@/types/event';
 import type { IncomingEventPayload, IncomingEventStatus } from '@/types/incomingEvent';
 
 function parseStructuredDateTime(value: string): Date {
@@ -30,7 +30,7 @@ export function incomingEventToDraft(payload: IncomingEventPayload, reminderMinu
     startDate: localDateKey(start),
     startTime: localTimeKey(start),
     endTime: end ? localTimeKey(end) : undefined,
-    category: 'Meeting',
+    category: payload.category && EVENT_CATEGORIES.includes(payload.category) ? payload.category : 'Other',
     notes: payload.notes,
     reminderMinutesBefore,
   };
@@ -44,6 +44,7 @@ export function validateIncomingEvent(payload: IncomingEventPayload): IncomingEv
   if (!title || title.length > 200) throw new Error('Incoming event title is invalid.');
   if (payload.notes && payload.notes.length > 5000) throw new Error('Incoming event notes are too long.');
   if (payload.originalText && payload.originalText.length > 5000) throw new Error('Incoming original text is too long.');
+  if (payload.category && !EVENT_CATEGORIES.includes(payload.category)) throw new Error('Incoming event category is invalid.');
   parseStructuredDateTime(payload.startDateTime);
   if (payload.endDateTime) parseStructuredDateTime(payload.endDateTime);
   return {

@@ -1,3 +1,5 @@
+import type { EventCategory } from '@/types/event';
+
 export interface IncomingEventPayload {
   externalEventId: string;
   title: string;
@@ -6,6 +8,7 @@ export interface IncomingEventPayload {
   notes?: string;
   originalText?: string;
   source: 'line';
+  category?: EventCategory;
 }
 
 export type IncomingEventStatus =

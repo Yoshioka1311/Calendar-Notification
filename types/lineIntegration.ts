@@ -18,4 +18,6 @@ export interface LineAcceptedEvent {
   endDateTime?: string;
   notes?: string;
   originalText: string;
+  category: EventCategory;
 }
+import type { EventCategory } from '@/types/event';

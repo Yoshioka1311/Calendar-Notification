@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useSettings } from '@/contexts/SettingsContext';
-import { CATEGORY_COLORS, type CalendarEvent } from '@/types/event';
+import { CATEGORY_COLORS, EVENT_CATEGORIES, type CalendarEvent } from '@/types/event';
 import { radius } from '@/theme';
 import { addMonths, formatMonthYear, getCalendarDays, isSameMonth, toDateKey } from '@/utils/date';
 
@@ -30,6 +30,11 @@ export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMont
     for (const event of events) result.set(event.startDate, [...(result.get(event.startDate) ?? []), event]);
     return result;
   }, [events]);
+  const visibleCategories = useMemo(() => {
+    const monthKey = toDateKey(month).slice(0, 7);
+    const present = new Set(events.filter((event) => event.startDate.startsWith(monthKey)).map((event) => event.category));
+    return EVENT_CATEGORIES.filter((category) => present.has(category));
+  }, [events, month]);
 
   const turnMonth = useCallback(
     (nextDirection: 1 | -1) => {
@@ -130,15 +135,38 @@ export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMont
                     selected && { color: theme.dark ? '#131524' : '#FFFFFF', opacity: 1, fontWeight: '800' },
                   ]}>{day.getDate()}</Text>
                 </View>
-                <View style={styles.dots}>
-                  {dots.map((color) => <View key={color} style={[styles.dot, compact && styles.compactDot, { backgroundColor: color }]} />)}
-                  {dayEvents.length > 3 && !compact ? <Text style={[styles.more, { color: theme.colors.textMuted }]}>+{dayEvents.length - 3}</Text> : null}
-                </View>
+                {compact ? (
+                  <View style={styles.dots}>
+                    {dots.map((color) => <View key={color} style={[styles.dot, styles.compactDot, { backgroundColor: color }]} />)}
+                  </View>
+                ) : (
+                  <View style={styles.eventLabels}>
+                    {dayEvents.slice(0, 2).map((event) => {
+                      const color = CATEGORY_COLORS[event.category];
+                      return (
+                        <View key={event.id} style={[styles.eventLabel, { backgroundColor: `${color}22`, borderLeftColor: color }]}>
+                          <Text numberOfLines={1} style={[styles.eventLabelText, { color: theme.colors.text }]}>{event.title}</Text>
+                        </View>
+                      );
+                    })}
+                    {dayEvents.length > 2 ? <Text style={[styles.moreEvents, { color: theme.colors.textMuted }]}>+{dayEvents.length - 2} more</Text> : null}
+                  </View>
+                )}
               </Pressable>
             );
           })}
         </View>
       </Animated.View>
+      {!compact && visibleCategories.length ? (
+        <View style={[styles.legend, { borderTopColor: theme.colors.border }]}>
+          {visibleCategories.map((category) => (
+            <View key={category} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: CATEGORY_COLORS[category] }]} />
+              <Text style={[styles.legendText, { color: theme.colors.textMuted }]}>{category}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -155,8 +183,8 @@ const styles = StyleSheet.create({
   weekday: { width: '14.2857%', textAlign: 'center', fontSize: 10, fontWeight: '700', letterSpacing: 0.3 },
   compactWeekday: { fontSize: 9 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: '14.2857%', aspectRatio: 0.87, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 4 },
-  compactCell: { aspectRatio: 1.04, paddingTop: 2 },
+  cell: { width: '14.2857%', height: 82, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 4, paddingHorizontal: 2 },
+  compactCell: { height: undefined, aspectRatio: 1.04, paddingTop: 2, paddingHorizontal: 0 },
   dayCircle: { width: 34, height: 34, maxWidth: '82%', borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   compactCircle: { width: 27, height: 27, borderRadius: 14 },
   dayText: { fontSize: 14, fontWeight: '500' },
@@ -164,5 +192,12 @@ const styles = StyleSheet.create({
   dots: { minHeight: 7, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, marginTop: 2 },
   dot: { width: 4, height: 4, borderRadius: 2 },
   compactDot: { width: 3, height: 3 },
-  more: { fontSize: 7, marginLeft: 1 },
+  eventLabels: { width: '100%', gap: 2, marginTop: 2 },
+  eventLabel: { minHeight: 15, borderLeftWidth: 2, borderRadius: 3, paddingHorizontal: 3, justifyContent: 'center' },
+  eventLabelText: { fontSize: 8, lineHeight: 11, fontWeight: '600' },
+  moreEvents: { fontSize: 7, lineHeight: 9, textAlign: 'center' },
+  legend: { borderTopWidth: StyleSheet.hairlineWidth, flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8, paddingHorizontal: 8, paddingTop: 10, paddingBottom: 2 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  legendDot: { width: 7, height: 7, borderRadius: 4 },
+  legendText: { fontSize: 9, fontWeight: '600' },
 });

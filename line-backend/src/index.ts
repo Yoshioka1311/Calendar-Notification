@@ -76,7 +76,7 @@ function confirmationMessage(event: ReturnType<typeof parseEventMessage>, eventI
   const time = event.endTime ? `${event.startTime}-${event.endTime}` : event.startTime;
   return {
     type: 'text',
-    text: ['ตรวจพบกิจกรรม', `ชื่อ: ${event.title}`, `วันที่: ${date}`, `เวลา: ${time}`, '', 'ยืนยันเพิ่มลง Calendar App หรือไม่?'].join('\n'),
+    text: ['ตรวจพบกิจกรรม', `ชื่อ: ${event.title}`, `ประเภท: ${event.category}`, `วันที่: ${date}`, `เวลา: ${time}`, '', 'ยืนยันเพิ่มลง Calendar App หรือไม่?'].join('\n'),
     quickReply: {
       items: [
         {

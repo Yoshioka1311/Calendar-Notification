@@ -4,7 +4,9 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 import { DuplicateExternalEventError, eventService } from '@/services/eventService';
+import { EVENT_CATEGORIES } from '@/types/event';
 import type { LineAcceptedEvent, LineConnectionStatus, LinePairingSession, LineSyncResult } from '@/types/lineIntegration';
+import { detectEventCategory } from '@/utils/eventCategory';
 
 const API_URL = 'https://calendar-notification.violetar1311.workers.dev';
 const INSTALLATION_KEY = 'line.installation-id.v1';
@@ -80,7 +82,7 @@ function eventDraft(event: LineAcceptedEvent) {
     startDate: event.startDateTime.slice(0, 10),
     startTime: event.startDateTime.slice(11, 16),
     endTime: endTime || undefined,
-    category: 'Other' as const,
+    category: EVENT_CATEGORIES.includes(event.category) ? event.category : detectEventCategory(event.title),
     notes: event.notes,
     reminderMinutesBefore: 1440,
   };

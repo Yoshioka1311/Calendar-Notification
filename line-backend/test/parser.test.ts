@@ -11,6 +11,7 @@ test('parses a numeric Gregorian date', () => {
     localDate: '2026-08-15',
     startTime: '14:00',
     endTime: undefined,
+    category: 'Meeting',
   });
 });
 
@@ -18,6 +19,7 @@ test('parses a Thai month and converts Buddhist year', () => {
   const event = parseEventMessage('15 สิงหาคม 2569 เวลา 14:00 ประชุมโปรเจกต์');
   assert.equal(event.startDateTime, '2026-08-15T14:00:00+07:00');
   assert.equal(event.title, 'ประชุมโปรเจกต์');
+  assert.equal(event.category, 'Meeting');
 });
 
 test('parses an optional end time', () => {

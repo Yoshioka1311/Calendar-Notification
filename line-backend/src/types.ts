@@ -46,7 +46,10 @@ export interface AcceptedEvent {
   endDateTime?: string;
   notes?: string;
   originalText: string;
+  category: EventCategory;
 }
+
+export type EventCategory = 'Personal' | 'Work' | 'School' | 'Meeting' | 'Health' | 'Important' | 'Other';
 
 export interface ParsedIncomingEvent {
   title: string;
@@ -55,6 +58,7 @@ export interface ParsedIncomingEvent {
   localDate: string;
   startTime: string;
   endTime?: string;
+  category: EventCategory;
 }
 
 export interface IncomingEventRecord extends ParsedIncomingEvent {
