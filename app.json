@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.smartcalendar.reminder"
+      "package": "com.smartcalendar.reminder",
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",
