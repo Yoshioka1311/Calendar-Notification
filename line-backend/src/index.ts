@@ -350,13 +350,13 @@ export default {
       return json({
         service: 'calendar-notification-line-api',
         status: 'ok',
-        version: '1.1.0',
+        version: '1.1.1',
         lineReminderScheduler: true,
         timeZone: env.APP_TIME_ZONE,
       });
     }
     if (request.method === 'POST' && url.pathname === '/api/line/webhook') return handleWebhook(request, env);
-    if (url.pathname.startsWith('/api/devices/') || url.pathname.startsWith('/api/events/')) {
+    if (url.pathname.startsWith('/api/devices/') || url.pathname.startsWith('/api/events/') || url.pathname.startsWith('/api/reminders/')) {
       return handleAppApi(request, env, url.pathname);
     }
     return json({ error: 'Not found.' }, 404);
