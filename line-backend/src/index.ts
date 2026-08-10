@@ -347,7 +347,13 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return json({ ok: true });
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
-      return json({ service: 'calendar-notification-line-api', status: 'ok', timeZone: env.APP_TIME_ZONE });
+      return json({
+        service: 'calendar-notification-line-api',
+        status: 'ok',
+        version: '1.1.0',
+        lineReminderScheduler: true,
+        timeZone: env.APP_TIME_ZONE,
+      });
     }
     if (request.method === 'POST' && url.pathname === '/api/line/webhook') return handleWebhook(request, env);
     if (url.pathname.startsWith('/api/devices/') || url.pathname.startsWith('/api/events/')) {
