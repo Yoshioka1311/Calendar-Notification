@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, PanResponder, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { useSettings } from '@/contexts/SettingsContext';
 import { CATEGORY_COLORS, EVENT_CATEGORIES, type CalendarEvent } from '@/types/event';
@@ -17,6 +17,8 @@ type CalendarGridProps = {
 
 export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMonthChange, compact = false }: CalendarGridProps) {
   const { theme, settings } = useSettings();
+  const { width } = useWindowDimensions();
+  const showEventLabels = !compact && width >= 390;
   const [transition] = useState(() => new Animated.Value(0));
   const [busy, setBusy] = useState(false);
   const [direction, setDirection] = useState<1 | -1>(1);
@@ -121,7 +123,7 @@ export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMont
                   onSelectDate(dateKey);
                   if (!currentMonth) onMonthChange(new Date(day.getFullYear(), day.getMonth(), 1));
                 }}
-                style={({ pressed }) => [styles.cell, compact && styles.compactCell, { opacity: pressed ? 0.62 : 1 }]}>
+                style={({ pressed }) => [styles.cell, compact && styles.compactCell, !compact && !showEventLabels && styles.smallCell, { opacity: pressed ? 0.62 : 1 }]}>
                 <View style={[
                   styles.dayCircle,
                   compact && styles.compactCircle,
@@ -135,7 +137,7 @@ export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMont
                     selected && { color: theme.dark ? '#131524' : '#FFFFFF', opacity: 1, fontWeight: '800' },
                   ]}>{day.getDate()}</Text>
                 </View>
-                {compact ? (
+                {compact || !showEventLabels ? (
                   <View style={styles.dots}>
                     {dots.map((color) => <View key={color} style={[styles.dot, styles.compactDot, { backgroundColor: color }]} />)}
                   </View>
@@ -184,6 +186,7 @@ const styles = StyleSheet.create({
   compactWeekday: { fontSize: 9 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: '14.2857%', height: 82, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 4, paddingHorizontal: 2 },
+  smallCell: { height: 64 },
   compactCell: { height: undefined, aspectRatio: 1.04, paddingTop: 2, paddingHorizontal: 0 },
   dayCircle: { width: 34, height: 34, maxWidth: '82%', borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   compactCircle: { width: 27, height: 27, borderRadius: 14 },

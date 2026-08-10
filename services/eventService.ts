@@ -22,7 +22,11 @@ import {
 } from '@/types/event';
 import { combineLocalDateTime, eventStart, isValidTime, sortEvents } from '@/utils/date';
 
-export type EventSaveResult = { event: CalendarEvent; notification: NotificationResult };
+export type EventSaveResult = {
+  event: CalendarEvent;
+  notification: NotificationResult;
+  lineReminder?: 'synced' | 'disabled' | 'not-connected' | 'error';
+};
 
 export class DuplicateExternalEventError extends Error {
   constructor(public readonly existingEventId?: string) {
@@ -44,7 +48,13 @@ function cleanDraft(draft: EventDraft): EventDraft {
   if (!Number.isInteger(draft.reminderMinutesBefore) || draft.reminderMinutesBefore < 0) {
     throw new Error('Please choose a valid reminder.');
   }
-  return { ...draft, title, notes: notes || undefined };
+  return {
+    ...draft,
+    title,
+    notes: notes || undefined,
+    phoneReminderEnabled: draft.reminderMinutesBefore > 0 && draft.phoneReminderEnabled,
+    lineReminderEnabled: draft.reminderMinutesBefore > 0 && draft.lineReminderEnabled,
+  };
 }
 
 async function scheduleSafely(event: CalendarEvent): Promise<NotificationResult> {

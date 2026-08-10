@@ -49,3 +49,18 @@ export async function replyToLine(replyToken: string, messages: LineReplyMessage
   });
   return response.ok;
 }
+
+export async function pushToLine(lineUserId: string, message: string, channelAccessToken: string): Promise<boolean> {
+  const response = await fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${channelAccessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      to: lineUserId,
+      messages: [{ type: 'text', text: message.slice(0, 5000) }],
+    }),
+  });
+  return response.ok;
+}

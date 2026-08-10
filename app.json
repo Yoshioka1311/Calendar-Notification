@@ -2,7 +2,7 @@
   "expo": {
     "name": "Calendar Noti",
     "slug": "calander-noti",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "calandernoti",
@@ -20,7 +20,10 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.smartcalendar.reminder",
-      "versionCode": 1
+      "versionCode": 2,
+      "permissions": [
+        "android.permission.SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -39,7 +42,14 @@
       ],
       "expo-sqlite",
       "@react-native-community/datetimepicker",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#5B5BD6",
+          "defaultChannel": "event-reminders"
+        }
+      ],
       "expo-secure-store"
     ],
     "experiments": {

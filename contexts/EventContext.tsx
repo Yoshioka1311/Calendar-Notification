@@ -54,7 +54,7 @@ export function EventProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
-    void reload();
+    queueMicrotask(() => void reload());
   }, [reload]);
 
   const syncLineEvents = useCallback(async (): Promise<LineSyncResult> => {
@@ -79,20 +79,24 @@ export function EventProvider({ children }: PropsWithChildren) {
 
   const createEvent = useCallback(async (draft: EventDraft): Promise<EventSaveResult> => {
     const result = await eventService.createEvent({ ...draft, source: 'manual' });
+    result.lineReminder = await lineIntegrationService.syncEventReminder(result.event);
     setEvents((current) => sortEvents([...current, result.event]));
     return result;
   }, []);
 
   const editEvent = useCallback(async (id: string, draft: EventDraft): Promise<EventSaveResult> => {
     const result = await eventService.updateEvent(id, draft);
+    result.lineReminder = await lineIntegrationService.syncEventReminder(result.event);
     setEvents((current) => sortEvents(current.map((item) => (item.id === id ? result.event : item))));
     return result;
   }, []);
 
   const removeEvent = useCallback(async (id: string) => {
+    const existing = events.find((event) => event.id === id);
     await eventService.deleteEvent(id);
+    if (existing) await lineIntegrationService.syncEventReminder({ ...existing, lineReminderEnabled: false }).catch(() => undefined);
     setEvents((current) => current.filter((event) => event.id !== id));
-  }, []);
+  }, [events]);
 
   const simulateIncomingLineEvent = useCallback(async (): Promise<'ready' | 'duplicate'> => {
     const result = await simulateIncomingLineEventService();
@@ -112,6 +116,7 @@ export function EventProvider({ children }: PropsWithChildren) {
       externalEventId: incomingEvent.externalEventId,
       originalText: incomingEvent.originalText,
     });
+    result.lineReminder = await lineIntegrationService.syncEventReminder(result.event);
     setEvents((current) => sortEvents([...current, result.event]));
     setIncomingEvent(undefined);
     return result;

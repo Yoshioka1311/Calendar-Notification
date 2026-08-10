@@ -10,7 +10,7 @@
     "check": "npm run typecheck && npm test && wrangler deploy --dry-run",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "deploy": "wrangler deploy && npm run db:migrate:remote"
+    "deploy": "npm run db:migrate:remote && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260809.1",

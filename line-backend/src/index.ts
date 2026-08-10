@@ -2,18 +2,25 @@ import {
   authenticateDevice,
   allowPairingAttempt,
   completePairing,
+  claimLineReminder,
   decideIncomingEvent,
+  disableLineReminder,
+  finishLineReminder,
+  getAcceptedEventForReminder,
   isLineUserPaired,
   isWebhookProcessed,
   listAcceptedEvents,
+  listDueLineReminders,
   markEventDelivered,
   markWebhookProcessed,
   saveIncomingEvent,
   upsertPairingSession,
+  upsertLineReminder,
 } from './database';
 import { randomPairingCode, randomToken, sha256 } from './crypto';
-import { replyToLine, verifyLineSignature, type LineReplyMessage } from './line';
+import { pushToLine, replyToLine, verifyLineSignature, type LineReplyMessage } from './line';
 import { parseEventMessage } from './parser';
+import { computeReminderTimes, lineReminderMessage } from './reminders';
 import type { AppDevice, Env, IncomingEventRecord, LineWebhookBody, LineWebhookEvent } from './types';
 
 const MAX_BODY_BYTES = 256 * 1024;
@@ -130,6 +137,19 @@ async function handlePostback(event: LineWebhookEvent, env: Env): Promise<void> 
   if (decision === 'ignored') {
     await replyIfPossible(event, [textMessage('ไม่เพิ่มกิจกรรมนี้แล้ว')], env);
     return;
+  }
+  const accepted = await getAcceptedEventForReminder(env.DB, eventId, lineUserId);
+  if (accepted) {
+    const times = computeReminderTimes(accepted.startDateTime, 1440);
+    await upsertLineReminder(env.DB, {
+      eventKey: accepted.externalEventId,
+      lineUserId,
+      title: accepted.title,
+      startDateTime: accepted.startDateTime,
+      ...times,
+      reminderMinutesBefore: 1440,
+      enabled: true,
+    });
   }
   const paired = await isLineUserPaired(env.DB, lineUserId);
   await replyIfPossible(event, [textMessage(paired
@@ -252,7 +272,74 @@ async function handleAppApi(request: Request, env: Env, pathname: string): Promi
     const updated = await markEventDelivered(env.DB, importedMatch[1]!, device.lineUserId);
     return updated ? json({ ok: true }) : json({ error: 'Event not found.' }, 404);
   }
+  if (request.method === 'POST' && pathname === '/api/reminders/upsert') {
+    if (!device.lineUserId) return json({ error: 'Connect LINE before enabling LINE reminders.' }, 409);
+    const body = await readJsonObject(request);
+    const eventId = typeof body?.eventId === 'string' ? body.eventId.trim() : '';
+    const externalEventId = typeof body?.externalEventId === 'string' ? body.externalEventId.trim() : undefined;
+    const title = typeof body?.title === 'string' ? body.title.trim() : '';
+    const startDateTime = typeof body?.startDateTime === 'string' ? body.startDateTime.trim() : '';
+    const reminderMinutesBefore = body?.reminderMinutesBefore;
+    const enabled = body?.enabled;
+    if (!/^[0-9a-f-]{36}$/i.test(eventId) || !title || title.length > 200 || typeof enabled !== 'boolean') {
+      return json({ error: 'Invalid reminder data.' }, 400);
+    }
+    if (externalEventId && (externalEventId.length > 200 || !externalEventId.startsWith('line:'))) {
+      return json({ error: 'Invalid external event ID.' }, 400);
+    }
+    if (!enabled || reminderMinutesBefore === 0) {
+      const key = externalEventId ?? `app:${device.id}:${eventId}`;
+      await disableLineReminder(env.DB, key, device);
+      return json({ ok: true, enabled: false });
+    }
+    if (typeof reminderMinutesBefore !== 'number') return json({ error: 'Invalid reminder interval.' }, 400);
+    let times: ReturnType<typeof computeReminderTimes>;
+    try {
+      times = computeReminderTimes(startDateTime, reminderMinutesBefore);
+    } catch (caught) {
+      return json({ error: caught instanceof Error ? caught.message : 'Invalid reminder data.' }, 400);
+    }
+    await upsertLineReminder(env.DB, {
+      eventKey: externalEventId ?? `app:${device.id}:${eventId}`,
+      ownerDeviceId: externalEventId ? undefined : device.id,
+      lineUserId: device.lineUserId,
+      title,
+      startDateTime,
+      ...times,
+      reminderMinutesBefore,
+      enabled: true,
+    });
+    return json({ ok: true, enabled: true, reminderAt: times.reminderAt });
+  }
   return json({ error: 'Not found.' }, 404);
+}
+
+async function sendDueLineReminders(env: Env): Promise<void> {
+  if (!env.LINE_CHANNEL_ACCESS_TOKEN) {
+    console.error('LINE reminder cron skipped: access token is missing.');
+    return;
+  }
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const staleBefore = new Date(now.getTime() - 10 * 60_000).toISOString();
+  const reminders = await listDueLineReminders(env.DB, nowIso, staleBefore);
+  for (const reminder of reminders) {
+    const claimedAt = new Date().toISOString();
+    if (!(await claimLineReminder(env.DB, reminder.eventKey, claimedAt))) continue;
+    let sent = false;
+    try {
+      sent = await pushToLine(
+        reminder.lineUserId,
+        lineReminderMessage(reminder.title, reminder.startDateTime, reminder.reminderMinutesBefore),
+        env.LINE_CHANNEL_ACCESS_TOKEN,
+      );
+      if (!sent) console.warn('LINE reminder was not accepted.', { eventKey: reminder.eventKey });
+    } catch (caught) {
+      console.error('LINE reminder failed.', { eventKey: reminder.eventKey, error: caught instanceof Error ? caught.message : String(caught) });
+    } finally {
+      await finishLineReminder(env.DB, reminder.eventKey, claimedAt, sent);
+    }
+  }
 }
 
 export default {
@@ -267,5 +354,8 @@ export default {
       return handleAppApi(request, env, url.pathname);
     }
     return json({ error: 'Not found.' }, 404);
+  },
+  async scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
+    context.waitUntil(sendDueLineReminders(env));
   },
 };

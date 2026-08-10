@@ -31,6 +31,11 @@ export function EventCard({ event, compact = false, showDate = true }: EventCard
               <View style={[styles.categoryBadge, { backgroundColor: `${categoryColor}1A` }]}>
                 <Text style={[styles.category, { color: categoryColor }]}>{event.category}</Text>
               </View>
+              {event.source === 'line' ? (
+                <View style={[styles.sourceBadge, { borderColor: theme.colors.border }]}>
+                  <Text style={[styles.sourceText, { color: theme.colors.textMuted }]}>LINE</Text>
+                </View>
+              ) : null}
               <Text style={[styles.reminder, { color: theme.colors.textMuted }]} numberOfLines={1}>
                 {event.reminderMinutesBefore > 0 ? `◷ ${reminderLabel(event.reminderMinutesBefore)}` : 'No reminder'}
               </Text>
@@ -53,6 +58,8 @@ const styles = StyleSheet.create({
   footer: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
   categoryBadge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
   category: { fontSize: 11, fontWeight: '700' },
+  sourceBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 7, paddingVertical: 4 },
+  sourceText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
   reminder: { flex: 1, fontSize: 11 },
   chevron: { fontSize: 25, marginLeft: 8, fontWeight: '300' },
 });

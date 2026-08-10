@@ -12,7 +12,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
   const { theme } = useSettings();
   const insets = useSafeAreaInsets();
   const [toast, setToast] = useState<{ title: string; message?: string }>();
-  const translateY = useRef(new Animated.Value(-130)).current;
+  const [translateY] = useState(() => new Animated.Value(-130));
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback(

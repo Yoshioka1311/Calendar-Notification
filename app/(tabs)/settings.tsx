@@ -8,7 +8,12 @@ import { Screen } from '@/components/UI/Screen';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useEvents } from '@/contexts/EventContext';
 import { useToast } from '@/contexts/ToastContext';
-import { getNotificationPermission, requestNotificationPermission } from '@/services/notifications';
+import {
+  getNotificationPermission,
+  getScheduledNotifications,
+  requestNotificationPermission,
+  scheduleTestNotification,
+} from '@/services/notifications';
 import { lineIntegrationService } from '@/services/lineIntegrationService';
 import { REMINDER_OPTIONS, reminderLabel } from '@/types/event';
 import type { LineConnectionStatus, LinePairingSession } from '@/types/lineIntegration';
@@ -22,6 +27,7 @@ export default function SettingsScreen() {
   const [lineStatus, setLineStatus] = useState<LineConnectionStatus>('not-started');
   const [pairing, setPairing] = useState<LinePairingSession>();
   const [lineBusy, setLineBusy] = useState(false);
+  const [notificationTestBusy, setNotificationTestBusy] = useState(false);
 
   const refreshPermission = async () => {
     if (Platform.OS === 'web') return;
@@ -81,6 +87,34 @@ export default function SettingsScreen() {
     else await Linking.openSettings();
   };
 
+  const runNotificationTest = async (seconds: number) => {
+    setNotificationTestBusy(true);
+    try {
+      await scheduleTestNotification(seconds);
+      showToast('Test reminder scheduled', `Close the app and wait ${seconds === 60 ? '1 minute' : `${seconds} seconds`}.`);
+    } catch (caught) {
+      showToast('Unable to schedule test', caught instanceof Error ? caught.message : 'Please try again.');
+    } finally {
+      setNotificationTestBusy(false);
+    }
+  };
+
+  const inspectScheduledNotifications = async () => {
+    try {
+      const scheduled = await getScheduledNotifications();
+      const next = scheduled
+        .map((item) => {
+          const trigger = item.trigger as { value?: number; date?: number };
+          const value = trigger.value ?? trigger.date;
+          return value ? new Date(value).toLocaleString() : undefined;
+        })
+        .find(Boolean);
+      showToast(`${scheduled.length} scheduled notification(s)`, next ? `Next: ${next}` : 'No pending notification on this device');
+    } catch (caught) {
+      showToast('Unable to inspect notifications', caught instanceof Error ? caught.message : 'Please try again.');
+    }
+  };
+
   const runLineSimulation = async () => {
     try {
       const status = await simulateIncomingLineEvent();
@@ -118,6 +152,14 @@ export default function SettingsScreen() {
             />
           ))}
         </View>
+        {__DEV__ && Platform.OS !== 'web' ? (
+          <View style={styles.simulator}>
+            <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>Development only · These use the real operating-system notification scheduler.</Text>
+            <Button variant="secondary" loading={notificationTestBusy} onPress={() => void runNotificationTest(10)} style={styles.inlineButton}>Test in 10 seconds</Button>
+            <Button variant="secondary" loading={notificationTestBusy} onPress={() => void runNotificationTest(60)} style={styles.inlineButton}>Test in 1 minute</Button>
+            <Button variant="ghost" onPress={() => void inspectScheduledNotifications()} style={styles.inlineButton}>View scheduled notifications</Button>
+          </View>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection title="CALENDAR">
@@ -175,7 +217,7 @@ export default function SettingsScreen() {
         ) : null}
       </SettingsSection>
 
-      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Calendar Noti · Version 1.0.0</Text>
+      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Calendar Noti · Version 1.1.0</Text>
     </Screen>
   );
 }

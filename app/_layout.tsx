@@ -3,6 +3,7 @@ import 'react-native-reanimated';
 import { StatusBar } from 'expo-status-bar';
 
 import { EventProvider } from '@/contexts/EventContext';
+import { NotificationBootstrap } from '@/components/Notifications/NotificationBootstrap';
 import { SettingsProvider, useSettings } from '@/contexts/SettingsContext';
 import { ToastProvider } from '@/contexts/ToastContext';
 import { configureNotificationPresentation } from '@/services/notifications';
@@ -47,6 +48,7 @@ function RootLayoutNav() {
       <EventProvider>
         <ToastProvider>
           <StatusBar style={theme.dark ? 'light' : 'dark'} />
+          <NotificationBootstrap />
           <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right', contentStyle: { backgroundColor: theme.colors.background } }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="event/[id]" />

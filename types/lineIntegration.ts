@@ -1,3 +1,5 @@
+import type { EventCategory } from '@/types/event';
+
 export type LineConnectionStatus = 'not-started' | 'waiting' | 'connected';
 
 export interface LinePairingSession {
@@ -20,4 +22,3 @@ export interface LineAcceptedEvent {
   originalText: string;
   category: EventCategory;
 }
-import type { EventCategory } from '@/types/event';

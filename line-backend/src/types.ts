@@ -70,3 +70,23 @@ export interface IncomingEventRecord extends ParsedIncomingEvent {
   originalText: string;
   notes: string;
 }
+
+export interface LineReminderRecord {
+  eventKey: string;
+  ownerDeviceId?: string;
+  lineUserId: string;
+  title: string;
+  startDateTime: string;
+  eventAt: string;
+  reminderMinutesBefore: number;
+  reminderAt: string;
+  enabled: boolean;
+}
+
+export interface DueLineReminder {
+  eventKey: string;
+  lineUserId: string;
+  title: string;
+  startDateTime: string;
+  reminderMinutesBefore: number;
+}

@@ -2,7 +2,13 @@
 
 Cloudflare Worker for receiving LINE Messaging API webhooks. It verifies every webhook signature before parsing, stores events in D1, prevents duplicate webhook delivery, and asks the user to confirm or ignore each detected event with LINE quick-reply buttons.
 
-The Expo app creates a one-time, 8-character pairing code in Settings. Send `LINK CODE` to the LINE bot within 10 minutes. Confirmed events are then imported when the app opens or the user taps sync, and the app schedules its normal one-day local reminder.
+The Expo app creates a one-time, 8-character pairing code in Settings. Send `LINK CODE` to the LINE bot within 10 minutes. Confirmed events are imported when the app opens or the user taps sync. Phone reminders use the device scheduler, while LINE reminders are stored and delivered independently by this Worker.
+
+## LINE reminder delivery
+
+The Worker runs a cron trigger every minute, claims due rows in `line_reminders`, sends them with the LINE Messaging API push endpoint, and records `sent_at`. Conditional claims and the sent timestamp prevent duplicate delivery when cron executions overlap. Failed sends release the claim so a later execution can retry while the event is still in the future.
+
+LINE-created events receive a one-day reminder when the user confirms them. A paired app can securely update the reminder time or disable delivery through its hashed bearer-token-authenticated API. The phone never receives or stores the LINE channel access token.
 
 ## Supported message formats
 
@@ -29,7 +35,7 @@ Deploy command: npm run deploy
 Production branch: main
 ```
 
-Wrangler automatically provisions the D1 binding named `DB` during the first deployment. The deploy script then applies all remote migrations.
+For a brand-new Worker, deploy once to provision the D1 binding and then run the migrations. This repository already has its production D1 database, so the Git deploy script applies migrations before publishing the Worker; this ensures the reminder table exists before the cron handler becomes active.
 
 After deployment, add these encrypted secrets in **Worker > Settings > Variables and Secrets**:
 

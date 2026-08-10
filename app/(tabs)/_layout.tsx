@@ -1,11 +1,12 @@
 import { SymbolView } from 'expo-symbols';
 import { Tabs } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSettings } from '@/contexts/SettingsContext';
 
 export default function TabLayout() {
   const { theme } = useSettings();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -16,17 +17,20 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: theme.colors.tabBar,
           borderTopColor: theme.colors.border,
-          minHeight: 64,
+          height: 60 + insets.bottom,
           paddingTop: 7,
+          paddingBottom: Math.max(insets.bottom, 7),
         },
+        tabBarItemStyle: { minHeight: 48 },
         tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+        tabBarHideOnKeyboard: true,
       }}>
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: 'Calendar',
           tabBarIcon: ({ color }) => (
-            <SymbolView name={{ ios: 'house.fill', android: 'home', web: 'home' }} tintColor={color} size={23} />
+            <SymbolView name={{ ios: 'calendar', android: 'calendar_month', web: 'calendar_month' }} tintColor={color} size={23} />
           ),
         }}
       />
@@ -37,21 +41,17 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="add"
-        options={{
-          title: 'Add event',
-          tabBarIcon: ({ focused }) => (
-            <View style={[styles.addIcon, { backgroundColor: theme.colors.primary, transform: [{ scale: focused ? 1.05 : 1 }] }]}>
-              <SymbolView name={{ ios: 'plus', android: 'add', web: 'add' }} tintColor={theme.dark ? '#17182A' : '#FFFFFF'} size={25} />
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="upcoming"
         options={{
           title: 'Upcoming',
           tabBarIcon: ({ color }) => <SymbolView name={{ ios: 'clock.fill', android: 'event_upcoming', web: 'event_upcoming' }} tintColor={color} size={23} />,
+        }}
+      />
+      <Tabs.Screen
+        name="add"
+        options={{
+          title: 'Add event',
+          tabBarIcon: ({ color }) => <SymbolView name={{ ios: 'plus.circle.fill', android: 'add_circle', web: 'add_circle' }} tintColor={color} size={25} />,
         }}
       />
       <Tabs.Screen
@@ -64,7 +64,3 @@ export default function TabLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  addIcon: { width: 42, height: 42, marginTop: -15, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
-});

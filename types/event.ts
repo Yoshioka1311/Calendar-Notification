@@ -20,6 +20,9 @@ export interface CalendarEvent {
   category: EventCategory;
   notes?: string;
   reminderMinutesBefore: number;
+  phoneReminderEnabled: boolean;
+  lineReminderEnabled: boolean;
+  lineReminderSentAt?: string;
   notificationId?: string;
   source: EventSource;
   externalEventId?: string;
@@ -37,6 +40,8 @@ export type EventDraft = Pick<
   | 'category'
   | 'notes'
   | 'reminderMinutesBefore'
+  | 'phoneReminderEnabled'
+  | 'lineReminderEnabled'
 >;
 
 export type CreateEventInput = EventDraft &
@@ -55,6 +60,7 @@ export const CATEGORY_COLORS: Record<EventCategory, string> = {
 
 export const REMINDER_OPTIONS = [
   { label: 'No reminder', minutes: 0 },
+  { label: '1 minute before', minutes: 1 },
   { label: '10 minutes before', minutes: 10 },
   { label: '30 minutes before', minutes: 30 },
   { label: '1 hour before', minutes: 60 },

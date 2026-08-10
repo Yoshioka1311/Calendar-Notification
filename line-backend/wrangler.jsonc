@@ -11,6 +11,9 @@
   "vars": {
     "APP_TIME_ZONE": "Asia/Bangkok"
   },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "d1_databases": [
     {
       "binding": "DB",

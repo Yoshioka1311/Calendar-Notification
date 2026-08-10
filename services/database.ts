@@ -11,6 +11,9 @@ type EventRow = {
   category: EventCategory;
   notes: string | null;
   reminder_minutes_before: number;
+  phone_reminder_enabled: number;
+  line_reminder_enabled: number;
+  line_reminder_sent_at: string | null;
   notification_id: string | null;
   source: EventSource;
   external_event_id: string | null;
@@ -36,6 +39,9 @@ function rowToEvent(row: EventRow): CalendarEvent {
     category: row.category,
     notes: row.notes ?? undefined,
     reminderMinutesBefore: row.reminder_minutes_before,
+    phoneReminderEnabled: row.phone_reminder_enabled !== 0,
+    lineReminderEnabled: row.line_reminder_enabled !== 0,
+    lineReminderSentAt: row.line_reminder_sent_at ?? undefined,
     notificationId: row.notification_id ?? undefined,
     source: row.source,
     externalEventId: row.external_event_id ?? undefined,
@@ -59,6 +65,9 @@ export async function initializeDatabase(): Promise<void> {
       category TEXT NOT NULL,
       notes TEXT CHECK(notes IS NULL OR length(notes) <= 5000),
       reminder_minutes_before INTEGER NOT NULL DEFAULT 1440 CHECK(reminder_minutes_before >= 0),
+      phone_reminder_enabled INTEGER NOT NULL DEFAULT 1 CHECK(phone_reminder_enabled IN (0, 1)),
+      line_reminder_enabled INTEGER NOT NULL DEFAULT 0 CHECK(line_reminder_enabled IN (0, 1)),
+      line_reminder_sent_at TEXT,
       notification_id TEXT,
       source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual', 'line')),
       external_event_id TEXT,
@@ -71,6 +80,15 @@ export async function initializeDatabase(): Promise<void> {
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(events)');
   if (!columns.some((column) => column.name === 'external_event_id')) {
     await db.execAsync('ALTER TABLE events ADD COLUMN external_event_id TEXT;');
+  }
+  if (!columns.some((column) => column.name === 'phone_reminder_enabled')) {
+    await db.execAsync('ALTER TABLE events ADD COLUMN phone_reminder_enabled INTEGER NOT NULL DEFAULT 1;');
+  }
+  if (!columns.some((column) => column.name === 'line_reminder_enabled')) {
+    await db.execAsync("ALTER TABLE events ADD COLUMN line_reminder_enabled INTEGER NOT NULL DEFAULT 0; UPDATE events SET line_reminder_enabled = 1 WHERE source = 'line';");
+  }
+  if (!columns.some((column) => column.name === 'line_reminder_sent_at')) {
+    await db.execAsync('ALTER TABLE events ADD COLUMN line_reminder_sent_at TEXT;');
   }
   await db.execAsync(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_events_external_id
@@ -102,7 +120,8 @@ export async function findEventByExternalId(externalEventId: string): Promise<Ca
 
 const EVENT_VALUES = `
   $id, $title, $startDate, $startTime, $endTime, $category, $notes,
-  $reminderMinutesBefore, $notificationId, $source, $externalEventId, $originalText, $createdAt, $updatedAt
+  $reminderMinutesBefore, $phoneReminderEnabled, $lineReminderEnabled, $lineReminderSentAt,
+  $notificationId, $source, $externalEventId, $originalText, $createdAt, $updatedAt
 `;
 
 function eventParams(event: CalendarEvent) {
@@ -115,6 +134,9 @@ function eventParams(event: CalendarEvent) {
     $category: event.category,
     $notes: event.notes ?? null,
     $reminderMinutesBefore: event.reminderMinutesBefore,
+    $phoneReminderEnabled: event.phoneReminderEnabled ? 1 : 0,
+    $lineReminderEnabled: event.lineReminderEnabled ? 1 : 0,
+    $lineReminderSentAt: event.lineReminderSentAt ?? null,
     $notificationId: event.notificationId ?? null,
     $source: event.source,
     $externalEventId: event.externalEventId ?? null,
@@ -129,7 +151,8 @@ export async function insertEvent(event: CalendarEvent): Promise<void> {
   await db.runAsync(
     `INSERT INTO events (
       id, title, start_date, start_time, end_time, category, notes,
-      reminder_minutes_before, notification_id, source, external_event_id, original_text, created_at, updated_at
+      reminder_minutes_before, phone_reminder_enabled, line_reminder_enabled, line_reminder_sent_at,
+      notification_id, source, external_event_id, original_text, created_at, updated_at
     ) VALUES (${EVENT_VALUES})`,
     eventParams(event),
   );
@@ -141,7 +164,9 @@ export async function updateEvent(event: CalendarEvent): Promise<void> {
     `UPDATE events SET
       title = $title, start_date = $startDate, start_time = $startTime,
       end_time = $endTime, category = $category, notes = $notes,
-      reminder_minutes_before = $reminderMinutesBefore, notification_id = $notificationId,
+      reminder_minutes_before = $reminderMinutesBefore,
+      phone_reminder_enabled = $phoneReminderEnabled, line_reminder_enabled = $lineReminderEnabled,
+      line_reminder_sent_at = $lineReminderSentAt, notification_id = $notificationId,
       source = $source, external_event_id = $externalEventId, original_text = $originalText, updated_at = $updatedAt
     WHERE id = $id`,
     eventParams(event),

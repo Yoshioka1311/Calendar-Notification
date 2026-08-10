@@ -1,6 +1,6 @@
 import type { EventCategory } from '@/types/event';
 
-const CATEGORY_KEYWORDS: Array<{ category: EventCategory; thai: string[]; english: string[] }> = [
+const CATEGORY_KEYWORDS: { category: EventCategory; thai: string[]; english: string[] }[] = [
   { category: 'Important', thai: ['ด่วน', 'สำคัญ', 'กำหนดส่ง', 'เดดไลน์'], english: ['urgent', 'important', 'deadline', 'due'] },
   { category: 'Health', thai: ['หมอ', 'ทันตแพทย์', 'โรงพยาบาล', 'คลินิก', 'ตรวจสุขภาพ', 'ออกกำลัง', 'ฟิตเนส', 'วิ่ง'], english: ['doctor', 'dentist', 'hospital', 'clinic', 'health', 'medical', 'workout', 'gym', 'run'] },
   { category: 'School', thai: ['เรียน', 'สอบ', 'การบ้าน', 'โรงเรียน', 'มหาวิทยาลัย', 'ติว', 'วิชา'], english: ['class', 'exam', 'test', 'homework', 'school', 'university', 'study', 'lecture'] },

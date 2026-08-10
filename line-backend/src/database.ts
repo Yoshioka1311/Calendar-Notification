@@ -1,4 +1,4 @@
-import type { AcceptedEvent, AppDevice, IncomingEventRecord } from './types';
+import type { AcceptedEvent, AppDevice, DueLineReminder, IncomingEventRecord, LineReminderRecord } from './types';
 
 type DeviceRow = {
   id: string;
@@ -152,4 +152,96 @@ export async function markEventDelivered(db: D1Database, eventId: string, lineUs
     WHERE id = ? AND line_user_id = ? AND status = 'accepted'
   `).bind(now, now, eventId, lineUserId).run();
   return (result.meta.changes ?? 0) > 0;
+}
+
+export async function getAcceptedEventForReminder(db: D1Database, eventId: string, lineUserId: string): Promise<{ externalEventId: string; title: string; startDateTime: string } | undefined> {
+  const row = await db.prepare(`
+    SELECT external_event_id, title, start_date_time FROM incoming_events
+    WHERE id = ? AND line_user_id = ? AND status = 'accepted' LIMIT 1
+  `).bind(eventId, lineUserId).first<{ external_event_id: string; title: string; start_date_time: string }>();
+  return row ? { externalEventId: row.external_event_id, title: row.title, startDateTime: row.start_date_time } : undefined;
+}
+
+export async function upsertLineReminder(db: D1Database, reminder: LineReminderRecord): Promise<void> {
+  const now = new Date().toISOString();
+  await db.prepare(`
+    INSERT INTO line_reminders (
+      event_key, owner_device_id, line_user_id, title, start_date_time, event_at,
+      reminder_minutes_before, reminder_at, enabled, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(event_key) DO UPDATE SET
+      owner_device_id = COALESCE(excluded.owner_device_id, line_reminders.owner_device_id),
+      line_user_id = excluded.line_user_id,
+      title = excluded.title,
+      start_date_time = excluded.start_date_time,
+      event_at = excluded.event_at,
+      reminder_minutes_before = excluded.reminder_minutes_before,
+      reminder_at = excluded.reminder_at,
+      enabled = excluded.enabled,
+      sent_at = CASE
+        WHEN line_reminders.start_date_time <> excluded.start_date_time
+          OR line_reminders.reminder_minutes_before <> excluded.reminder_minutes_before
+          OR line_reminders.enabled <> excluded.enabled THEN NULL
+        ELSE line_reminders.sent_at
+      END,
+      claimed_at = CASE
+        WHEN line_reminders.start_date_time <> excluded.start_date_time
+          OR line_reminders.reminder_minutes_before <> excluded.reminder_minutes_before
+          OR line_reminders.enabled <> excluded.enabled THEN NULL
+        ELSE line_reminders.claimed_at
+      END,
+      updated_at = excluded.updated_at
+    WHERE line_reminders.line_user_id = excluded.line_user_id
+  `).bind(
+    reminder.eventKey, reminder.ownerDeviceId ?? null, reminder.lineUserId, reminder.title,
+    reminder.startDateTime, reminder.eventAt, reminder.reminderMinutesBefore, reminder.reminderAt,
+    reminder.enabled ? 1 : 0, now, now,
+  ).run();
+}
+
+export async function disableLineReminder(db: D1Database, eventKey: string, device: AppDevice): Promise<boolean> {
+  const result = await db.prepare(`
+    UPDATE line_reminders SET enabled = 0, claimed_at = NULL, updated_at = ?
+    WHERE event_key = ? AND line_user_id = ? AND (owner_device_id = ? OR owner_device_id IS NULL)
+  `).bind(new Date().toISOString(), eventKey, device.lineUserId ?? '', device.id).run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function listDueLineReminders(db: D1Database, now: string, staleBefore: string): Promise<DueLineReminder[]> {
+  const result = await db.prepare(`
+    SELECT event_key, line_user_id, title, start_date_time, reminder_minutes_before
+    FROM line_reminders
+    WHERE enabled = 1 AND sent_at IS NULL AND reminder_at <= ? AND event_at > ?
+      AND (claimed_at IS NULL OR claimed_at < ?)
+    ORDER BY reminder_at ASC LIMIT 50
+  `).bind(now, now, staleBefore).all<{
+    event_key: string; line_user_id: string; title: string; start_date_time: string; reminder_minutes_before: number;
+  }>();
+  return result.results.map((row) => ({
+    eventKey: row.event_key,
+    lineUserId: row.line_user_id,
+    title: row.title,
+    startDateTime: row.start_date_time,
+    reminderMinutesBefore: row.reminder_minutes_before,
+  }));
+}
+
+export async function claimLineReminder(db: D1Database, eventKey: string, claimedAt: string): Promise<boolean> {
+  const staleBefore = new Date(new Date(claimedAt).getTime() - 10 * 60_000).toISOString();
+  const result = await db.prepare(`
+    UPDATE line_reminders SET claimed_at = ?, updated_at = ?
+    WHERE event_key = ? AND enabled = 1 AND sent_at IS NULL
+      AND (claimed_at IS NULL OR claimed_at < ?)
+  `).bind(claimedAt, claimedAt, eventKey, staleBefore).run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function finishLineReminder(db: D1Database, eventKey: string, claimedAt: string, sent: boolean): Promise<void> {
+  if (sent) {
+    await db.prepare('UPDATE line_reminders SET sent_at = ?, updated_at = ? WHERE event_key = ? AND claimed_at = ? AND sent_at IS NULL')
+      .bind(new Date().toISOString(), new Date().toISOString(), eventKey, claimedAt).run();
+    return;
+  }
+  await db.prepare('UPDATE line_reminders SET claimed_at = NULL, updated_at = ? WHERE event_key = ? AND claimed_at = ? AND sent_at IS NULL')
+    .bind(new Date().toISOString(), eventKey, claimedAt).run();
 }

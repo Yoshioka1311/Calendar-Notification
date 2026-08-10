@@ -2,11 +2,29 @@ import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
 import type { CalendarEvent } from '@/types/event';
-import { combineLocalDateTime, formatTime } from '@/utils/date';
+import { combineLocalDateTime, formatShortDate } from '@/utils/date';
+
+export const EVENT_REMINDER_CHANNEL_ID = 'event-reminders';
 
 export type NotificationResult =
   | { status: 'scheduled'; notificationId: string; scheduledFor: Date }
-  | { status: 'disabled' | 'permission-denied' | 'past' | 'unavailable' | 'error' };
+  | { status: 'disabled' | 'permission-denied' | 'past' | 'unavailable' | 'error'; error?: string };
+
+export type NotificationPermissionSnapshot = {
+  granted: boolean;
+  canAskAgain: boolean;
+  status: Notifications.PermissionStatus;
+};
+
+function debugLog(message: string, details?: Record<string, unknown>): void {
+  // eslint-disable-next-line no-console -- deliberately development-only diagnostics
+  if (__DEV__) console.info(`[notifications] ${message}`, details ?? '');
+}
+
+function debugError(message: string, caught: unknown, details?: Record<string, unknown>): void {
+  // eslint-disable-next-line no-console -- deliberately development-only diagnostics
+  if (__DEV__) console.error(`[notifications] ${message}`, { ...details, error: caught instanceof Error ? caught.message : String(caught) });
+}
 
 export function configureNotificationPresentation(): void {
   Notifications.setNotificationHandler({
@@ -19,66 +37,147 @@ export function configureNotificationPresentation(): void {
   });
 }
 
+/** Android 13 only shows the permission prompt after a channel exists. */
 export async function prepareNotifications(): Promise<void> {
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('event-reminders', {
-      name: 'Event reminders',
-      importance: Notifications.AndroidImportance.HIGH,
-      vibrationPattern: [0, 220, 160, 220],
-      lightColor: '#5B5BD6',
-    });
-  }
+  if (Platform.OS !== 'android') return;
+
+  await Notifications.setNotificationChannelAsync(EVENT_REMINDER_CHANNEL_ID, {
+    name: 'Calendar reminders',
+    description: 'Reminders for events saved in Calendar Noti',
+    importance: Notifications.AndroidImportance.HIGH,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    vibrationPattern: [0, 250, 150, 250],
+    lightColor: '#5B5BD6',
+    showBadge: true,
+    sound: 'default',
+  });
 }
 
-type PermissionSnapshot = { granted: boolean; canAskAgain: boolean };
+function permissionIsGranted(permission: Notifications.NotificationPermissionsStatus): boolean {
+  if (permission.granted) return true;
+  return Platform.OS === 'ios' && permission.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+}
+
+export async function getNotificationPermissionStatus(): Promise<NotificationPermissionSnapshot> {
+  if (Platform.OS === 'web') {
+    return { granted: false, canAskAgain: false, status: Notifications.PermissionStatus.UNDETERMINED };
+  }
+  const permission = await Notifications.getPermissionsAsync();
+  return {
+    granted: permissionIsGranted(permission),
+    canAskAgain: permission.canAskAgain,
+    status: permission.status,
+  };
+}
 
 export async function getNotificationPermission(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
-  const permission = (await Notifications.getPermissionsAsync()) as unknown as PermissionSnapshot;
-  return permission.granted;
+  return (await getNotificationPermissionStatus()).granted;
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
-  const current = (await Notifications.getPermissionsAsync()) as unknown as PermissionSnapshot;
-  if (current.granted) return true;
+
+  // This must happen before the prompt on Android 13+.
+  await prepareNotifications();
+  const current = await Notifications.getPermissionsAsync();
+  if (permissionIsGranted(current)) return true;
   if (!current.canAskAgain) return false;
-  const requested = (await Notifications.requestPermissionsAsync()) as unknown as PermissionSnapshot;
-  return requested.granted;
+
+  const requested = await Notifications.requestPermissionsAsync({
+    ios: { allowAlert: true, allowBadge: true, allowSound: true },
+  });
+  debugLog('permission result', { status: requested.status, granted: requested.granted, canAskAgain: requested.canAskAgain });
+  return permissionIsGranted(requested);
+}
+
+function reminderBody(event: CalendarEvent): string {
+  const when = event.reminderMinutesBefore === 1440
+    ? `Tomorrow at ${event.startTime}`
+    : `${formatShortDate(event.startDate)} at ${event.startTime}`;
+  return `${event.title}\n${when}`;
 }
 
 export async function scheduleEventNotification(event: CalendarEvent): Promise<NotificationResult> {
-  if (event.reminderMinutesBefore <= 0) return { status: 'disabled' };
+  if (event.phoneReminderEnabled === false || event.reminderMinutesBefore <= 0) return { status: 'disabled' };
   if (Platform.OS === 'web') return { status: 'unavailable' };
 
   const eventDate = combineLocalDateTime(event.startDate, event.startTime);
   if (!eventDate) throw new Error('The event date or time is invalid.');
 
   const scheduledFor = new Date(eventDate.getTime() - event.reminderMinutesBefore * 60_000);
-  if (scheduledFor.getTime() <= Date.now()) return { status: 'past' };
+  if (scheduledFor.getTime() <= Date.now()) {
+    debugLog('not scheduled because reminder time is in the past', { eventId: event.id, scheduledFor: scheduledFor.toISOString() });
+    return { status: 'past' };
+  }
 
-  const permitted = await requestNotificationPermission();
-  if (!permitted) return { status: 'permission-denied' };
+  try {
+    await prepareNotifications();
+    const permission = await getNotificationPermissionStatus();
+    if (!permission.granted) return { status: 'permission-denied' };
 
-  await prepareNotifications();
-  const notificationId = await Notifications.scheduleNotificationAsync({
-    content: {
-      title: event.reminderMinutesBefore === 1440 ? 'Tomorrow' : 'Event reminder',
-      body: `${event.title} • ${formatTime(event.startTime)}`,
-      data: { eventId: event.id },
-      sound: 'default',
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.DATE,
-      date: scheduledFor,
-      channelId: Platform.OS === 'android' ? 'event-reminders' : undefined,
-    },
-  });
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Calendar Reminder',
+        body: reminderBody(event),
+        data: { eventId: event.id, route: `/event/${event.id}` },
+        sound: 'default',
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: scheduledFor,
+        channelId: Platform.OS === 'android' ? EVENT_REMINDER_CHANNEL_ID : undefined,
+      },
+    });
 
-  return { status: 'scheduled', notificationId, scheduledFor };
+    debugLog('scheduled event reminder', { eventId: event.id, scheduledFor: scheduledFor.toISOString(), notificationId });
+    return { status: 'scheduled', notificationId, scheduledFor };
+  } catch (caught) {
+    debugError('failed to schedule event reminder', caught, { eventId: event.id, scheduledFor: scheduledFor.toISOString() });
+    return { status: 'error', error: caught instanceof Error ? caught.message : 'Unknown notification error' };
+  }
 }
 
 export async function cancelEventNotification(notificationId?: string): Promise<void> {
   if (!notificationId || Platform.OS === 'web') return;
-  await Notifications.cancelScheduledNotificationAsync(notificationId);
+  try {
+    await Notifications.cancelScheduledNotificationAsync(notificationId);
+    debugLog('cancelled event reminder', { notificationId });
+  } catch (caught) {
+    debugError('failed to cancel event reminder', caught, { notificationId });
+    throw caught;
+  }
+}
+
+export async function rescheduleEventNotification(event: CalendarEvent): Promise<NotificationResult> {
+  await cancelEventNotification(event.notificationId);
+  return scheduleEventNotification({ ...event, notificationId: undefined });
+}
+
+export async function getScheduledNotifications(): Promise<Notifications.NotificationRequest[]> {
+  if (Platform.OS === 'web') return [];
+  return Notifications.getAllScheduledNotificationsAsync();
+}
+
+export async function scheduleTestNotification(seconds: number): Promise<string> {
+  if (Platform.OS === 'web') throw new Error('Notifications are unavailable on web.');
+  if (!Number.isFinite(seconds) || seconds < 1 || seconds > 3600) throw new Error('Test delay must be between 1 and 3600 seconds.');
+  const permitted = await requestNotificationPermission();
+  if (!permitted) throw new Error('Notification permission is not enabled.');
+
+  const notificationId = await Notifications.scheduleNotificationAsync({
+    content: {
+      title: 'Calendar Reminder',
+      body: `Test notification scheduled ${seconds} seconds ago.`,
+      data: { test: true },
+      sound: 'default',
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds,
+      repeats: false,
+      channelId: Platform.OS === 'android' ? EVENT_REMINDER_CHANNEL_ID : undefined,
+    },
+  });
+  debugLog('scheduled test notification', { seconds, notificationId });
+  return notificationId;
 }

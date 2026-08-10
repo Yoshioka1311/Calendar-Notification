@@ -33,6 +33,8 @@ export function incomingEventToDraft(payload: IncomingEventPayload, reminderMinu
     category: payload.category && EVENT_CATEGORIES.includes(payload.category) ? payload.category : 'Other',
     notes: payload.notes,
     reminderMinutesBefore,
+    phoneReminderEnabled: true,
+    lineReminderEnabled: true,
   };
 }
 

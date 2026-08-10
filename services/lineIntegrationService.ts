@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 
 import { DuplicateExternalEventError, eventService } from '@/services/eventService';
 import { EVENT_CATEGORIES } from '@/types/event';
+import type { CalendarEvent } from '@/types/event';
 import type { LineAcceptedEvent, LineConnectionStatus, LinePairingSession, LineSyncResult } from '@/types/lineIntegration';
 import { detectEventCategory } from '@/utils/eventCategory';
 
@@ -87,6 +88,8 @@ function eventDraft(event: LineAcceptedEvent) {
       : detectEventCategory(event.title),
     notes: event.notes,
     reminderMinutesBefore: 1440,
+    phoneReminderEnabled: true,
+    lineReminderEnabled: true,
   };
 }
 
@@ -122,4 +125,28 @@ export async function syncLineEvents(): Promise<LineSyncResult> {
   return { imported, duplicates };
 }
 
-export const lineIntegrationService = { startLinePairing, getLineConnectionStatus, syncLineEvents };
+export async function syncEventReminder(event: CalendarEvent): Promise<'synced' | 'disabled' | 'not-connected' | 'error'> {
+  const token = await getStored(TOKEN_KEY);
+  if (!token) return event.lineReminderEnabled ? 'not-connected' : 'disabled';
+  try {
+    await apiRequest('/api/reminders/upsert', {
+      method: 'POST',
+      body: JSON.stringify({
+        eventId: event.id,
+        externalEventId: event.externalEventId,
+        title: event.title,
+        startDateTime: `${event.startDate}T${event.startTime}:00+07:00`,
+        reminderMinutesBefore: event.reminderMinutesBefore,
+        enabled: event.lineReminderEnabled && event.reminderMinutesBefore > 0,
+      }),
+    }, token);
+    return event.lineReminderEnabled && event.reminderMinutesBefore > 0 ? 'synced' : 'disabled';
+  } catch (caught) {
+    if (caught instanceof Error && caught.message.includes('Connect LINE')) return 'not-connected';
+    // eslint-disable-next-line no-console -- deliberately development-only diagnostics
+    if (__DEV__) console.error('[line-reminders] sync failed', { eventId: event.id, error: caught instanceof Error ? caught.message : String(caught) });
+    return 'error';
+  }
+}
+
+export const lineIntegrationService = { startLinePairing, getLineConnectionStatus, syncLineEvents, syncEventReminder };

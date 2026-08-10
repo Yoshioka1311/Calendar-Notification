@@ -1,76 +1,77 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CalendarGrid } from '@/components/Calendar/CalendarGrid';
 import { EventCard } from '@/components/Event/EventCard';
 import { IncomingEventCard } from '@/components/Event/IncomingEventCard';
+import { Button } from '@/components/UI/Button';
 import { Card } from '@/components/UI/Card';
 import { EmptyState } from '@/components/UI/EmptyState';
 import { Screen } from '@/components/UI/Screen';
 import { useEvents } from '@/contexts/EventContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import { greetingFor, toDateKey } from '@/utils/date';
+import { formatLongDate, fromDateKey, toDateKey } from '@/utils/date';
 
-export default function TabOneScreen() {
+export default function CalendarScreen() {
+  const params = useLocalSearchParams<{ date?: string }>();
+  const requested = Array.isArray(params.date) ? params.date[0] : params.date;
+  const initialDate = requested && fromDateKey(requested) ? requested : toDateKey(new Date());
+  return <CalendarContent key={initialDate} initialDate={initialDate} />;
+}
+
+function CalendarContent({ initialDate }: { initialDate: string }) {
+  const todayKey = toDateKey(new Date());
+  const [selectedDate, setSelectedDate] = useState(initialDate);
+  const initial = fromDateKey(initialDate) ?? new Date();
+  const [month, setMonth] = useState(() => new Date(initial.getFullYear(), initial.getMonth(), 1));
   const { events, loading, reload } = useEvents();
   const { theme } = useSettings();
-  const [miniMonth, setMiniMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-  const [now] = useState(() => new Date());
-  const todayKey = toDateKey(now);
-  const todayEvents = events.filter((event) => event.startDate === todayKey);
+  const selectedEvents = events.filter((event) => event.startDate === selectedDate);
+
+  const goToday = () => {
+    const today = new Date();
+    setSelectedDate(todayKey);
+    setMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+  };
 
   return (
     <Screen refreshing={loading} onRefresh={() => void reload()} contentStyle={styles.screen}>
-      <View style={styles.hero}>
-        <View style={styles.heroCopy}>
-          <Text style={[styles.greeting, { color: theme.colors.text }]}>{greetingFor(now)}</Text>
-          <Text style={[styles.todayDate, { color: theme.colors.textMuted }]}>
-            {new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' }).format(now)}
-          </Text>
+      <View style={styles.header}>
+        <View style={styles.headerCopy}>
+          <Text accessibilityRole="header" style={[styles.title, { color: theme.colors.text }]}>Calendar</Text>
+          <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>Swipe or use the arrows to change month</Text>
         </View>
-        <View style={[styles.avatar, { backgroundColor: theme.colors.primarySoft }]}><Text style={styles.avatarText}>CN</Text></View>
+        <Pressable accessibilityRole="button" onPress={goToday} style={[styles.todayButton, { backgroundColor: theme.colors.primarySoft }]}>
+          <Text style={[styles.todayButtonText, { color: theme.colors.primary }]}>Today</Text>
+        </Pressable>
       </View>
 
       <IncomingEventCard />
+      <CalendarGrid month={month} selectedDate={selectedDate} events={events} onSelectDate={setSelectedDate} onMonthChange={setMonth} />
 
-      <SectionHeader title="Today" action="See calendar" onPress={() => router.push('/(tabs)/calendar')} />
-      {todayEvents.length ? todayEvents.map((event) => <EventCard key={event.id} event={event} compact showDate={false} />) : (
-        <Card><EmptyState title="No events today" message="Your schedule is clear" actionLabel="Add event" onAction={() => router.push({ pathname: '/(tabs)/add', params: { date: todayKey } })} /></Card>
+      <View style={styles.dateHeader}>
+        <Text style={[styles.dateTitle, { color: theme.colors.text }]}>{formatLongDate(selectedDate)}</Text>
+        {selectedEvents.length ? <Text style={[styles.count, { color: theme.colors.textMuted }]}>{selectedEvents.length}</Text> : null}
+      </View>
+      {selectedEvents.length ? selectedEvents.map((event) => <EventCard key={event.id} event={event} showDate={false} />) : (
+        <Card><EmptyState title="Nothing planned for this day" message="Select Add event to create one." /></Card>
       )}
-
-      <SectionHeader title="Mini calendar" />
-      <CalendarGrid
-        compact
-        month={miniMonth}
-        selectedDate={todayKey}
-        events={events}
-        onMonthChange={setMiniMonth}
-        onSelectDate={(date) => router.push({ pathname: '/(tabs)/calendar', params: { date } })}
-      />
+      <Button onPress={() => router.push({ pathname: '/(tabs)/add', params: { date: selectedDate } })} style={styles.addButton}>Add event</Button>
     </Screen>
   );
 }
 
-function SectionHeader({ title, action, onPress }: { title: string; action?: string; onPress?: () => void }) {
-  const { theme } = useSettings();
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{title}</Text>
-      {action && onPress ? <Pressable hitSlop={8} onPress={onPress}><Text style={[styles.sectionAction, { color: theme.colors.primary }]}>{action}</Text></Pressable> : null}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  screen: { paddingTop: 18 },
-  hero: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  heroCopy: { flex: 1 },
-  greeting: { fontSize: 26, lineHeight: 32, fontWeight: '800', letterSpacing: -0.5 },
-  todayDate: { fontSize: 14, marginTop: 4 },
-  avatar: { width: 46, height: 46, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#7166D9', fontSize: 13, fontWeight: '800' },
-  sectionHeader: { marginTop: 18, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: { fontSize: 18, fontWeight: '700' },
-  sectionAction: { fontSize: 12, fontWeight: '700' },
+  screen: { paddingTop: 16 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  headerCopy: { flex: 1 },
+  title: { fontSize: 28, lineHeight: 34, fontWeight: '800', letterSpacing: -0.5 },
+  subtitle: { fontSize: 12, lineHeight: 17, marginTop: 2 },
+  todayButton: { minWidth: 64, minHeight: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  todayButtonText: { fontSize: 12, fontWeight: '800' },
+  dateHeader: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 },
+  dateTitle: { flex: 1, fontSize: 17, lineHeight: 22, fontWeight: '700' },
+  count: { minWidth: 24, textAlign: 'center', fontSize: 12, fontWeight: '700' },
+  addButton: { marginTop: 4 },
 });

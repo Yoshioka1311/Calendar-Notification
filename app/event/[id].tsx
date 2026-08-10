@@ -42,7 +42,7 @@ export default function EventDetailScreen() {
     return (
       <Screen>
         <BackButton />
-        {!loading ? <Card><EmptyState title="Event not found" message="It may have already been deleted." actionLabel="Go to calendar" onAction={() => router.replace('/(tabs)/calendar')} /></Card> : null}
+        {!loading ? <Card><EmptyState title="Event not found" message="It may have already been deleted." actionLabel="Go to calendar" onAction={() => router.replace('/(tabs)')} /></Card> : null}
       </Screen>
     );
   }
@@ -65,6 +65,10 @@ export default function EventDetailScreen() {
         <DetailRow label="Time" value={`${formatTime(event.startTime)}${event.endTime ? ` – ${formatTime(event.endTime)}` : ''}`} />
         <Divider />
         <DetailRow label="Reminder" value={event.reminderMinutesBefore ? reminderLabel(event.reminderMinutesBefore) : 'No reminder'} />
+        <Divider />
+        <DetailRow label="Phone reminder" value={event.phoneReminderEnabled ? 'Enabled' : 'Off'} />
+        <Divider />
+        <DetailRow label="LINE reminder" value={event.lineReminderEnabled ? 'Enabled' : 'Off'} />
         <Divider />
         <DetailRow label="Source" value={event.source === 'manual' ? 'Added manually' : 'LINE'} />
       </Card>

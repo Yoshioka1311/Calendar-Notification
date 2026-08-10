@@ -1,11 +1,12 @@
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -17,6 +18,7 @@ import { useEvents } from '@/contexts/EventContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useToast } from '@/contexts/ToastContext';
 import { incomingEventToDraft } from '@/services/incomingEventService';
+import { lineIntegrationService } from '@/services/lineIntegrationService';
 import {
   CATEGORY_COLORS,
   EVENT_CATEGORIES,
@@ -51,9 +53,22 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
   const [categoryManuallySelected, setCategoryManuallySelected] = useState(Boolean(event || incomingDraft));
   const [notes, setNotes] = useState(event?.notes ?? incomingDraft?.notes ?? '');
   const [reminder, setReminder] = useState(event?.reminderMinutesBefore ?? incomingDraft?.reminderMinutesBefore ?? settings.defaultReminderMinutes);
+  const [phoneReminderEnabled, setPhoneReminderEnabled] = useState(event?.phoneReminderEnabled ?? incomingDraft?.phoneReminderEnabled ?? true);
+  const [lineReminderEnabled, setLineReminderEnabled] = useState(event?.lineReminderEnabled ?? incomingDraft?.lineReminderEnabled ?? false);
+  const [lineConnected, setLineConnected] = useState(event?.lineReminderEnabled ?? incomingDraft?.lineReminderEnabled ?? false);
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void lineIntegrationService.getLineConnectionStatus()
+      .then((status) => {
+        const connected = status === 'connected';
+        setLineConnected(connected);
+        if (connected && !event && !incomingEvent) setLineReminderEnabled(true);
+      })
+      .catch(() => setLineConnected(false));
+  }, [event, incomingEvent]);
 
   const pickerValue = useMemo(() => {
     const base = fromDateKey(date) ?? new Date();
@@ -84,6 +99,8 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
       category,
       notes: notes || undefined,
       reminderMinutesBefore: reminder,
+      phoneReminderEnabled,
+      lineReminderEnabled,
     };
     try {
       const result = event
@@ -100,7 +117,12 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
         unavailable: 'Saved — notifications are available on your phone',
         error: 'Saved — the reminder could not be scheduled',
       }[result.notification.status];
-      showToast(event ? 'Event updated' : incomingEvent ? 'Detected event added' : 'Event added', notificationMessage);
+      const lineWarning = result.lineReminder === 'error'
+        ? ' LINE reminder could not sync; try again when online.'
+        : result.lineReminder === 'not-connected'
+          ? ' Connect LINE in Settings to receive LINE reminders.'
+          : '';
+      showToast(event ? 'Event updated' : incomingEvent ? 'Detected event added' : 'Event added', `${notificationMessage}.${lineWarning}`.replace('..', '.'));
       onSaved(result.event);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to save this event. Please try again.');
@@ -210,6 +232,23 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
           })}
         </View>
 
+        <View style={[styles.reminderDelivery, { borderColor: theme.colors.border }]}>
+          <ReminderSwitch
+            label="Phone notification"
+            description="Shows even when the app is closed"
+            value={phoneReminderEnabled}
+            onValueChange={setPhoneReminderEnabled}
+          />
+          <View style={[styles.deliveryDivider, { backgroundColor: theme.colors.border }]} />
+          <ReminderSwitch
+            label="LINE reminder"
+            description={lineConnected || event?.lineReminderEnabled || incomingEvent ? 'Sent by the connected LINE bot' : 'Connect LINE in Settings first'}
+            value={lineReminderEnabled}
+            onValueChange={setLineReminderEnabled}
+            disabled={!lineConnected && !event?.lineReminderEnabled && !incomingEvent}
+          />
+        </View>
+
         <FieldLabel label="Notes" hint="Optional" />
         <TextInput
           accessibilityLabel="Event notes"
@@ -240,6 +279,26 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
         </View>
       ) : null}
     </KeyboardAvoidingView>
+  );
+}
+
+function ReminderSwitch({ label, description, value, onValueChange, disabled }: { label: string; description: string; value: boolean; onValueChange: (value: boolean) => void; disabled?: boolean }) {
+  const { theme } = useSettings();
+  return (
+    <View style={[styles.deliveryRow, disabled && { opacity: 0.5 }]}>
+      <View style={styles.deliveryCopy}>
+        <Text style={[styles.deliveryLabel, { color: theme.colors.text }]}>{label}</Text>
+        <Text style={[styles.deliveryDescription, { color: theme.colors.textMuted }]}>{description}</Text>
+      </View>
+      <Switch
+        accessibilityLabel={label}
+        disabled={disabled}
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: theme.colors.border, true: theme.colors.primarySoft }}
+        thumbColor={value ? theme.colors.primary : theme.colors.textMuted}
+      />
+    </View>
   );
 }
 
@@ -285,6 +344,12 @@ const styles = StyleSheet.create({
   chip: { minHeight: 38, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center' },
   chipText: { fontSize: 12, fontWeight: '600' },
   categoryDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
+  reminderDelivery: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, marginTop: 16 },
+  deliveryRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  deliveryCopy: { flex: 1 },
+  deliveryLabel: { fontSize: 13, fontWeight: '700' },
+  deliveryDescription: { fontSize: 11, lineHeight: 16, marginTop: 2 },
+  deliveryDivider: { height: StyleSheet.hairlineWidth },
   notes: { minHeight: 104, paddingTop: 13 },
   error: { fontSize: 13, lineHeight: 18, marginTop: 14 },
   save: { marginTop: 20 },
