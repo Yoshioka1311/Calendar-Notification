@@ -18,6 +18,7 @@ import {
   upsertLineReminder,
 } from './database';
 import { randomPairingCode, randomToken, sha256 } from './crypto';
+import { createEventEntryMessage, handleGuidedPostback, handleGuidedText } from './guidedFlow';
 import { pushToLine, replyToLine, verifyLineSignature, type LineReplyMessage } from './line';
 import { parseEventMessage } from './parser';
 import { computeReminderTimes, lineReminderMessage } from './reminders';
@@ -116,6 +117,11 @@ async function handlePairingCommand(event: LineWebhookEvent, lineUserId: string,
 }
 
 async function handlePostback(event: LineWebhookEvent, env: Env): Promise<void> {
+  const guided = await handleGuidedPostback(event, env);
+  if (guided.handled) {
+    await replyIfPossible(event, guided.messages, env);
+    return;
+  }
   const lineUserId = event.source?.userId;
   const values = new URLSearchParams(event.postback?.data ?? '');
   const action = values.get('action');
@@ -166,8 +172,12 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
       await handlePostback(event, env);
       return;
     }
+    if (event.type === 'follow') {
+      await replyIfPossible(event, [createEventEntryMessage()], env);
+      return;
+    }
     if (event.type !== 'message' || event.message?.type !== 'text') {
-      await replyIfPossible(event, [textMessage('รองรับเฉพาะข้อความตัวอักษรสำหรับสร้างกิจกรรม')], env);
+      await replyIfPossible(event, [textMessage('รองรับข้อความตัวอักษรสำหรับสร้างกิจกรรม'), createEventEntryMessage()], env);
       return;
     }
 
@@ -179,6 +189,12 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
       return;
     }
     if (await handlePairingCommand(event, lineUserId, originalText, env)) return;
+
+    const guided = await handleGuidedText(event, lineUserId, messageId, originalText, env);
+    if (guided.handled) {
+      await replyIfPossible(event, guided.messages, env);
+      return;
+    }
 
     try {
       const parsed = parseEventMessage(originalText);
@@ -197,7 +213,7 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
         ? confirmationMessage(parsed, record.id)
         : textMessage('กิจกรรมนี้ถูกส่งเข้าระบบแล้ว จึงไม่สร้างรายการซ้ำ')], env);
     } catch {
-      await replyIfPossible(event, [textMessage(failureMessage())], env);
+      await replyIfPossible(event, [textMessage(failureMessage()), createEventEntryMessage()], env);
     }
   } finally {
     await markWebhookProcessed(env.DB, event.webhookEventId, event.type || 'unknown');
@@ -287,7 +303,7 @@ async function handleAppApi(request: Request, env: Env, pathname: string): Promi
     if (externalEventId && (externalEventId.length > 200 || !externalEventId.startsWith('line:'))) {
       return json({ error: 'Invalid external event ID.' }, 400);
     }
-    if (!enabled || reminderMinutesBefore === 0) {
+    if (!enabled) {
       const key = externalEventId ?? `app:${device.id}:${eventId}`;
       await disableLineReminder(env.DB, key, device);
       return json({ ok: true, enabled: false });
@@ -321,8 +337,9 @@ async function sendDueLineReminders(env: Env): Promise<void> {
   }
   const now = new Date();
   const nowIso = now.toISOString();
+  const eventCutoff = new Date(now.getTime() - 5 * 60_000).toISOString();
   const staleBefore = new Date(now.getTime() - 10 * 60_000).toISOString();
-  const reminders = await listDueLineReminders(env.DB, nowIso, staleBefore);
+  const reminders = await listDueLineReminders(env.DB, nowIso, eventCutoff, staleBefore);
   for (const reminder of reminders) {
     const claimedAt = new Date().toISOString();
     if (!(await claimLineReminder(env.DB, reminder.eventKey, claimedAt))) continue;
@@ -350,7 +367,7 @@ export default {
       return json({
         service: 'calendar-notification-line-api',
         status: 'ok',
-        version: '1.1.1',
+        version: '1.2.0',
         lineReminderScheduler: true,
         timeZone: env.APP_TIME_ZONE,
       });

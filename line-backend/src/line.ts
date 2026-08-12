@@ -24,13 +24,18 @@ export async function verifyLineSignature(rawBody: string, signature: string, ch
   return crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(rawBody));
 }
 
+type LineQuickReplyAction =
+  | { type: 'postback'; label: string; data: string; displayText?: string }
+  | { type: 'datetimepicker'; label: string; data: string; mode: 'date' | 'time' | 'datetime'; initial?: string; min?: string; max?: string }
+  | { type: 'message'; label: string; text: string };
+
 export type LineReplyMessage = {
   type: 'text';
   text: string;
   quickReply?: {
     items: Array<{
       type: 'action';
-      action: { type: 'postback'; label: string; data: string; displayText: string };
+      action: LineQuickReplyAction;
     }>;
   };
 };

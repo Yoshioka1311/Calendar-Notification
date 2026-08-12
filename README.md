@@ -1,6 +1,6 @@
-# Calendar Noti
+# Bousu Calendar
 
-Expo calendar app with local Android/iOS event reminders and optional LINE reminders delivered by a Cloudflare Worker.
+Expo calendar app with native Android/iOS event reminders and optional LINE reminders delivered by a Cloudflare Worker.
 
 ## Run locally
 
@@ -21,7 +21,7 @@ Create an installable development client:
 npx.cmd eas build --platform android --profile development
 ```
 
-Install it, run `npm.cmd start -- --dev-client`, open **Settings > Notifications**, and use the development-only 10-second or 1-minute test. Also create an event one minute in the future, background/close the app, and verify the lock screen and notification tray. Android may require enabling notifications, sound, and **Alarms & reminders** in system settings; manufacturer battery-saving rules can also affect exact delivery.
+Install it, run `npm.cmd start -- --dev-client`, open **Settings > Notifications**, and use the 10-second or 1-minute internal test. Preview APKs include these test buttons; production builds do not. Also create an event one minute in the future, background/close the app, and verify the lock screen and notification tray. Android may require enabling notifications, sound, and **Alarms & reminders** in system settings; manufacturer battery-saving rules can also affect exact delivery.
 
 For a normal standalone APK:
 

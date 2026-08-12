@@ -71,10 +71,16 @@ export function EventProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     void syncLineEvents().catch(() => undefined);
+    const interval = setInterval(() => {
+      if (AppState.currentState === 'active') void syncLineEvents().catch(() => undefined);
+    }, 60_000);
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') void syncLineEvents().catch(() => undefined);
     });
-    return () => subscription.remove();
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
   }, [syncLineEvents]);
 
   const createEvent = useCallback(async (draft: EventDraft): Promise<EventSaveResult> => {

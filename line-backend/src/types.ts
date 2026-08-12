@@ -29,6 +29,7 @@ export interface LineWebhookEvent {
   };
   postback?: {
     data?: string;
+    params?: { date?: string; time?: string; datetime?: string };
   };
 }
 
@@ -47,9 +48,11 @@ export interface AcceptedEvent {
   notes?: string;
   originalText: string;
   category: EventCategory;
+  reminderMinutesBefore: number;
+  parserConfidence?: number;
 }
 
-export type EventCategory = 'Personal' | 'Work' | 'School' | 'Meeting' | 'Health' | 'Important' | 'Other';
+export type EventCategory = 'Personal' | 'Work' | 'School' | 'Study' | 'Assignment' | 'Exam' | 'Meeting' | 'Health' | 'Travel' | 'Exercise' | 'Important' | 'Other';
 
 export interface ParsedIncomingEvent {
   title: string;
@@ -59,6 +62,7 @@ export interface ParsedIncomingEvent {
   startTime: string;
   endTime?: string;
   category: EventCategory;
+  parserConfidence?: number;
 }
 
 export interface IncomingEventRecord extends ParsedIncomingEvent {
@@ -69,6 +73,22 @@ export interface IncomingEventRecord extends ParsedIncomingEvent {
   messageId: string;
   originalText: string;
   notes: string;
+}
+
+export type LineEventSessionState = 'selecting_date' | 'selecting_time' | 'awaiting_description' | 'selecting_reminder' | 'confirming';
+
+export interface LineEventSession {
+  lineUserId: string;
+  state: LineEventSessionState;
+  localDate?: string;
+  startTime?: string;
+  title?: string;
+  category?: EventCategory;
+  reminderMinutesBefore?: number;
+  originalText?: string;
+  sourceMessageId?: string;
+  parserConfidence?: number;
+  expiresAt: string;
 }
 
 export interface LineReminderRecord {

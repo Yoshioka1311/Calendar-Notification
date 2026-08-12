@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CalendarGrid } from '@/components/Calendar/CalendarGrid';
 import { EventCard } from '@/components/Event/EventCard';
@@ -38,6 +38,12 @@ function CalendarContent({ initialDate }: { initialDate: string }) {
   return (
     <Screen refreshing={loading} onRefresh={() => void reload()} contentStyle={styles.screen}>
       <View style={styles.header}>
+        <Image
+          accessibilityLabel="Bousu Calendar logo"
+          source={require('../../assets/branding/bousu-calendar-logo-v2.png')}
+          resizeMode="contain"
+          style={[styles.logo, { backgroundColor: theme.colors.surface }]}
+        />
         <View style={styles.headerCopy}>
           <Text accessibilityRole="header" style={[styles.title, { color: theme.colors.text }]}>Calendar</Text>
           <Text style={[styles.subtitle, { color: theme.colors.textMuted }]}>Swipe or use the arrows to change month</Text>
@@ -65,6 +71,7 @@ function CalendarContent({ initialDate }: { initialDate: string }) {
 const styles = StyleSheet.create({
   screen: { paddingTop: 16 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  logo: { width: 46, height: 46, borderRadius: 14 },
   headerCopy: { flex: 1 },
   title: { fontSize: 28, lineHeight: 34, fontWeight: '800', letterSpacing: -0.5 },
   subtitle: { fontSize: 12, lineHeight: 17, marginTop: 2 },

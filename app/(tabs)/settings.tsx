@@ -28,6 +28,7 @@ export default function SettingsScreen() {
   const [pairing, setPairing] = useState<LinePairingSession>();
   const [lineBusy, setLineBusy] = useState(false);
   const [notificationTestBusy, setNotificationTestBusy] = useState(false);
+  const notificationTestToolsEnabled = __DEV__ || process.env.EXPO_PUBLIC_ENABLE_NOTIFICATION_TESTS === 'true';
 
   const refreshPermission = async () => {
     if (Platform.OS === 'web') return;
@@ -72,7 +73,7 @@ export default function SettingsScreen() {
     setLineBusy(true);
     try {
       const result = await syncLineEvents();
-      showToast(result.imported ? 'LINE events added' : 'Calendar is up to date', result.imported ? `${result.imported} event(s) imported with a 1-day reminder` : 'No new confirmed events');
+      showToast(result.imported ? 'LINE events added' : 'Calendar is up to date', result.imported ? `${result.imported} confirmed event(s) imported with their selected reminders` : 'No new confirmed events');
     } catch (caught) {
       showToast('LINE sync failed', caught instanceof Error ? caught.message : 'Please try again.');
     } finally {
@@ -130,7 +131,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <Screen title="Settings" subtitle="Make Calendar Noti yours">
+    <Screen title="Settings" subtitle="Make Bousu Calendar yours">
       <SettingsSection title="NOTIFICATIONS">
         <SettingRow
           label="Notifications"
@@ -152,9 +153,9 @@ export default function SettingsScreen() {
             />
           ))}
         </View>
-        {__DEV__ && Platform.OS !== 'web' ? (
+        {notificationTestToolsEnabled && Platform.OS !== 'web' ? (
           <View style={styles.simulator}>
-            <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>Development only · These use the real operating-system notification scheduler.</Text>
+            <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>Internal test build · These use the real operating-system notification scheduler.</Text>
             <Button variant="secondary" loading={notificationTestBusy} onPress={() => void runNotificationTest(10)} style={styles.inlineButton}>Test in 10 seconds</Button>
             <Button variant="secondary" loading={notificationTestBusy} onPress={() => void runNotificationTest(60)} style={styles.inlineButton}>Test in 1 minute</Button>
             <Button variant="ghost" onPress={() => void inspectScheduledNotifications()} style={styles.inlineButton}>View scheduled notifications</Button>
@@ -217,7 +218,7 @@ export default function SettingsScreen() {
         ) : null}
       </SettingsSection>
 
-      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Calendar Noti · Version 1.1.0</Text>
+      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Bousu Calendar · Version 1.2.0</Text>
     </Screen>
   );
 }

@@ -2,10 +2,13 @@
 
 # dependencies
 node_modules/
+.venv/
 
 # Expo
 .expo/
 dist/
+dist-android-check/
+assets/branding/*-chroma.png
 web-build/
 artifacts/
 expo-env.d.ts

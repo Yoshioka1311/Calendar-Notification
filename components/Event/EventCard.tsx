@@ -37,7 +37,7 @@ export function EventCard({ event, compact = false, showDate = true }: EventCard
                 </View>
               ) : null}
               <Text style={[styles.reminder, { color: theme.colors.textMuted }]} numberOfLines={1}>
-                {event.reminderMinutesBefore > 0 ? `◷ ${reminderLabel(event.reminderMinutesBefore)}` : 'No reminder'}
+                {event.phoneReminderEnabled || event.lineReminderEnabled ? reminderLabel(event.reminderMinutesBefore) : 'No reminder'}
               </Text>
             </View>
           ) : null}

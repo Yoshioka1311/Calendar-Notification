@@ -1,4 +1,4 @@
-import type { AcceptedEvent, AppDevice, DueLineReminder, IncomingEventRecord, LineReminderRecord } from './types';
+import type { AcceptedEvent, AppDevice, DueLineReminder, IncomingEventRecord, LineEventSession, LineReminderRecord } from './types';
 
 type DeviceRow = {
   id: string;
@@ -26,10 +26,11 @@ export async function saveIncomingEvent(db: D1Database, event: IncomingEventReco
     INSERT OR IGNORE INTO incoming_events (
       id, webhook_event_id, external_event_id, line_user_id, message_id,
       original_text, title, start_date_time, end_date_time, notes,
-      category, source, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'line', 'pending', ?, ?)
+      category, parser_confidence, source, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'line', 'pending', ?, ?)
   `).bind(event.id, event.webhookEventId, event.externalEventId, event.lineUserId, event.messageId,
-    event.originalText, event.title, event.startDateTime, event.endDateTime ?? null, event.notes, event.category, now, now).run();
+    event.originalText, event.title, event.startDateTime, event.endDateTime ?? null, event.notes, event.category,
+    event.parserConfidence ?? null, now, now).run();
   return (result.meta.changes ?? 0) > 0;
 }
 
@@ -125,13 +126,19 @@ export async function isLineUserPaired(db: D1Database, lineUserId: string): Prom
 
 export async function listAcceptedEvents(db: D1Database, lineUserId: string): Promise<AcceptedEvent[]> {
   const result = await db.prepare(`
-    SELECT id, external_event_id, title, start_date_time, end_date_time, notes, original_text, category
+    SELECT incoming_events.id, incoming_events.external_event_id, incoming_events.title,
+      incoming_events.start_date_time, incoming_events.end_date_time, incoming_events.notes,
+      incoming_events.original_text, incoming_events.category, incoming_events.parser_confidence,
+      COALESCE(line_reminders.reminder_minutes_before, 1440) AS reminder_minutes_before
     FROM incoming_events
-    WHERE line_user_id = ? AND status = 'accepted' AND delivered_at IS NULL
-    ORDER BY created_at ASC LIMIT 100
+    LEFT JOIN line_reminders ON line_reminders.event_key = incoming_events.external_event_id
+    WHERE incoming_events.line_user_id = ? AND incoming_events.status = 'accepted'
+      AND incoming_events.delivered_at IS NULL
+    ORDER BY incoming_events.created_at ASC LIMIT 100
   `).bind(lineUserId).all<{
     id: string; external_event_id: string; title: string; start_date_time: string;
     end_date_time: string | null; notes: string | null; original_text: string; category: AcceptedEvent['category'];
+    reminder_minutes_before: number; parser_confidence: number | null;
   }>();
   return result.results.map((row) => ({
     id: row.id,
@@ -142,6 +149,8 @@ export async function listAcceptedEvents(db: D1Database, lineUserId: string): Pr
     notes: row.notes ?? undefined,
     originalText: row.original_text,
     category: row.category,
+    reminderMinutesBefore: row.reminder_minutes_before,
+    parserConfidence: row.parser_confidence ?? undefined,
   }));
 }
 
@@ -207,14 +216,14 @@ export async function disableLineReminder(db: D1Database, eventKey: string, devi
   return (result.meta.changes ?? 0) > 0;
 }
 
-export async function listDueLineReminders(db: D1Database, now: string, staleBefore: string): Promise<DueLineReminder[]> {
+export async function listDueLineReminders(db: D1Database, now: string, eventCutoff: string, staleBefore: string): Promise<DueLineReminder[]> {
   const result = await db.prepare(`
     SELECT event_key, line_user_id, title, start_date_time, reminder_minutes_before
     FROM line_reminders
     WHERE enabled = 1 AND sent_at IS NULL AND reminder_at <= ? AND event_at > ?
       AND (claimed_at IS NULL OR claimed_at < ?)
     ORDER BY reminder_at ASC LIMIT 50
-  `).bind(now, now, staleBefore).all<{
+  `).bind(now, eventCutoff, staleBefore).all<{
     event_key: string; line_user_id: string; title: string; start_date_time: string; reminder_minutes_before: number;
   }>();
   return result.results.map((row) => ({
@@ -244,4 +253,73 @@ export async function finishLineReminder(db: D1Database, eventKey: string, claim
   }
   await db.prepare('UPDATE line_reminders SET claimed_at = NULL, updated_at = ? WHERE event_key = ? AND claimed_at = ? AND sent_at IS NULL')
     .bind(new Date().toISOString(), eventKey, claimedAt).run();
+}
+
+type LineEventSessionRow = {
+  line_user_id: string;
+  state: LineEventSession['state'];
+  local_date: string | null;
+  start_time: string | null;
+  title: string | null;
+  category: LineEventSession['category'] | null;
+  reminder_minutes_before: number | null;
+  original_text: string | null;
+  source_message_id: string | null;
+  parser_confidence: number | null;
+  expires_at: string;
+};
+
+function mapLineEventSession(row: LineEventSessionRow): LineEventSession {
+  return {
+    lineUserId: row.line_user_id,
+    state: row.state,
+    localDate: row.local_date ?? undefined,
+    startTime: row.start_time ?? undefined,
+    title: row.title ?? undefined,
+    category: row.category ?? undefined,
+    reminderMinutesBefore: row.reminder_minutes_before ?? undefined,
+    originalText: row.original_text ?? undefined,
+    sourceMessageId: row.source_message_id ?? undefined,
+    parserConfidence: row.parser_confidence ?? undefined,
+    expiresAt: row.expires_at,
+  };
+}
+
+export async function getLineEventSession(db: D1Database, lineUserId: string): Promise<LineEventSession | undefined> {
+  const now = new Date().toISOString();
+  const row = await db.prepare(`
+    SELECT line_user_id, state, local_date, start_time, title, category,
+      reminder_minutes_before, original_text, source_message_id, parser_confidence, expires_at
+    FROM line_event_sessions WHERE line_user_id = ? AND expires_at > ? LIMIT 1
+  `).bind(lineUserId, now).first<LineEventSessionRow>();
+  if (row) return mapLineEventSession(row);
+  await db.prepare('DELETE FROM line_event_sessions WHERE line_user_id = ?').bind(lineUserId).run();
+  return undefined;
+}
+
+export async function upsertLineEventSession(db: D1Database, session: LineEventSession): Promise<void> {
+  const now = new Date().toISOString();
+  await db.prepare(`
+    INSERT INTO line_event_sessions (
+      line_user_id, state, local_date, start_time, title, category,
+      reminder_minutes_before, original_text, source_message_id, parser_confidence,
+      expires_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(line_user_id) DO UPDATE SET
+      state = excluded.state, local_date = excluded.local_date, start_time = excluded.start_time,
+      title = excluded.title, category = excluded.category,
+      reminder_minutes_before = excluded.reminder_minutes_before,
+      original_text = excluded.original_text, source_message_id = excluded.source_message_id,
+      parser_confidence = excluded.parser_confidence, expires_at = excluded.expires_at,
+      updated_at = excluded.updated_at
+  `).bind(
+    session.lineUserId, session.state, session.localDate ?? null, session.startTime ?? null,
+    session.title ?? null, session.category ?? null, session.reminderMinutesBefore ?? null,
+    session.originalText ?? null, session.sourceMessageId ?? null, session.parserConfidence ?? null,
+    session.expiresAt, now, now,
+  ).run();
+}
+
+export async function deleteLineEventSession(db: D1Database, lineUserId: string): Promise<void> {
+  await db.prepare('DELETE FROM line_event_sessions WHERE line_user_id = ?').bind(lineUserId).run();
 }

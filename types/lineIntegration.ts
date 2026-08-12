@@ -21,4 +21,6 @@ export interface LineAcceptedEvent {
   notes?: string;
   originalText: string;
   category: EventCategory;
+  reminderMinutesBefore: number;
+  parserConfidence?: number;
 }

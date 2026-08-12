@@ -64,7 +64,7 @@ export default function EventDetailScreen() {
         <Divider />
         <DetailRow label="Time" value={`${formatTime(event.startTime)}${event.endTime ? ` – ${formatTime(event.endTime)}` : ''}`} />
         <Divider />
-        <DetailRow label="Reminder" value={event.reminderMinutesBefore ? reminderLabel(event.reminderMinutesBefore) : 'No reminder'} />
+        <DetailRow label="Reminder" value={event.phoneReminderEnabled || event.lineReminderEnabled ? reminderLabel(event.reminderMinutesBefore) : 'No reminder'} />
         <Divider />
         <DetailRow label="Phone reminder" value={event.phoneReminderEnabled ? 'Enabled' : 'Off'} />
         <Divider />

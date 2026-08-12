@@ -42,8 +42,8 @@ export async function prepareNotifications(): Promise<void> {
   if (Platform.OS !== 'android') return;
 
   await Notifications.setNotificationChannelAsync(EVENT_REMINDER_CHANNEL_ID, {
-    name: 'Calendar reminders',
-    description: 'Reminders for events saved in Calendar Noti',
+    name: 'Event Reminders',
+    description: 'High-priority reminders for events saved in Bousu Calendar',
     importance: Notifications.AndroidImportance.HIGH,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     vibrationPattern: [0, 250, 150, 250],
@@ -90,15 +90,23 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return permissionIsGranted(requested);
 }
 
-function reminderBody(event: CalendarEvent): string {
-  const when = event.reminderMinutesBefore === 1440
-    ? `Tomorrow at ${event.startTime}`
-    : `${formatShortDate(event.startDate)} at ${event.startTime}`;
+function reminderBody(event: CalendarEvent, scheduledFor: Date): string {
+  const eventDate = combineLocalDateTime(event.startDate, event.startTime);
+  const deliveryDay = new Date(scheduledFor.getFullYear(), scheduledFor.getMonth(), scheduledFor.getDate()).getTime();
+  const eventDay = eventDate
+    ? new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate()).getTime()
+    : deliveryDay;
+  const dayDifference = Math.round((eventDay - deliveryDay) / 86_400_000);
+  const when = dayDifference === 0
+    ? `วันนี้ เวลา ${event.startTime} น.`
+    : dayDifference === 1
+      ? `พรุ่งนี้ เวลา ${event.startTime} น.`
+      : `${formatShortDate(event.startDate, 'th-TH')} เวลา ${event.startTime} น.`;
   return `${event.title}\n${when}`;
 }
 
 export async function scheduleEventNotification(event: CalendarEvent): Promise<NotificationResult> {
-  if (event.phoneReminderEnabled === false || event.reminderMinutesBefore <= 0) return { status: 'disabled' };
+  if (event.phoneReminderEnabled === false || event.reminderMinutesBefore < 0) return { status: 'disabled' };
   if (Platform.OS === 'web') return { status: 'unavailable' };
 
   const eventDate = combineLocalDateTime(event.startDate, event.startTime);
@@ -117,8 +125,8 @@ export async function scheduleEventNotification(event: CalendarEvent): Promise<N
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Calendar Reminder',
-        body: reminderBody(event),
+        title: 'Bousu Calendar',
+        body: reminderBody(event, scheduledFor),
         data: { eventId: event.id, route: `/event/${event.id}` },
         sound: 'default',
       },
@@ -166,8 +174,8 @@ export async function scheduleTestNotification(seconds: number): Promise<string>
 
   const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
-      title: 'Calendar Reminder',
-      body: `Test notification scheduled ${seconds} seconds ago.`,
+      title: 'Bousu Calendar',
+      body: 'Notification test successful\nNative notifications are working.',
       data: { test: true },
       sound: 'default',
     },

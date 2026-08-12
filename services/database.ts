@@ -18,6 +18,7 @@ type EventRow = {
   source: EventSource;
   external_event_id: string | null;
   original_text: string | null;
+  parser_confidence: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -46,6 +47,7 @@ function rowToEvent(row: EventRow): CalendarEvent {
     source: row.source,
     externalEventId: row.external_event_id ?? undefined,
     originalText: row.original_text ?? undefined,
+    parserConfidence: row.parser_confidence ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -72,6 +74,7 @@ export async function initializeDatabase(): Promise<void> {
       source TEXT NOT NULL DEFAULT 'manual' CHECK(source IN ('manual', 'line')),
       external_event_id TEXT,
       original_text TEXT,
+      parser_confidence REAL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -89,6 +92,9 @@ export async function initializeDatabase(): Promise<void> {
   }
   if (!columns.some((column) => column.name === 'line_reminder_sent_at')) {
     await db.execAsync('ALTER TABLE events ADD COLUMN line_reminder_sent_at TEXT;');
+  }
+  if (!columns.some((column) => column.name === 'parser_confidence')) {
+    await db.execAsync('ALTER TABLE events ADD COLUMN parser_confidence REAL;');
   }
   await db.execAsync(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_events_external_id
@@ -121,7 +127,7 @@ export async function findEventByExternalId(externalEventId: string): Promise<Ca
 const EVENT_VALUES = `
   $id, $title, $startDate, $startTime, $endTime, $category, $notes,
   $reminderMinutesBefore, $phoneReminderEnabled, $lineReminderEnabled, $lineReminderSentAt,
-  $notificationId, $source, $externalEventId, $originalText, $createdAt, $updatedAt
+  $notificationId, $source, $externalEventId, $originalText, $parserConfidence, $createdAt, $updatedAt
 `;
 
 function eventParams(event: CalendarEvent) {
@@ -141,6 +147,7 @@ function eventParams(event: CalendarEvent) {
     $source: event.source,
     $externalEventId: event.externalEventId ?? null,
     $originalText: event.originalText ?? null,
+    $parserConfidence: event.parserConfidence ?? null,
     $createdAt: event.createdAt,
     $updatedAt: event.updatedAt,
   };
@@ -152,7 +159,7 @@ export async function insertEvent(event: CalendarEvent): Promise<void> {
     `INSERT INTO events (
       id, title, start_date, start_time, end_time, category, notes,
       reminder_minutes_before, phone_reminder_enabled, line_reminder_enabled, line_reminder_sent_at,
-      notification_id, source, external_event_id, original_text, created_at, updated_at
+      notification_id, source, external_event_id, original_text, parser_confidence, created_at, updated_at
     ) VALUES (${EVENT_VALUES})`,
     eventParams(event),
   );
@@ -167,7 +174,8 @@ export async function updateEvent(event: CalendarEvent): Promise<void> {
       reminder_minutes_before = $reminderMinutesBefore,
       phone_reminder_enabled = $phoneReminderEnabled, line_reminder_enabled = $lineReminderEnabled,
       line_reminder_sent_at = $lineReminderSentAt, notification_id = $notificationId,
-      source = $source, external_event_id = $externalEventId, original_text = $originalText, updated_at = $updatedAt
+      source = $source, external_event_id = $externalEventId, original_text = $originalText,
+      parser_confidence = $parserConfidence, updated_at = $updatedAt
     WHERE id = $id`,
     eventParams(event),
   );

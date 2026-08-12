@@ -87,7 +87,9 @@ function eventDraft(event: LineAcceptedEvent) {
       ? event.category
       : detectEventCategory(event.title),
     notes: event.notes,
-    reminderMinutesBefore: 1440,
+    reminderMinutesBefore: Number.isInteger(event.reminderMinutesBefore) && event.reminderMinutesBefore >= 0
+      ? event.reminderMinutesBefore
+      : 1440,
     phoneReminderEnabled: true,
     lineReminderEnabled: true,
   };
@@ -107,6 +109,7 @@ export async function syncLineEvents(): Promise<LineSyncResult> {
         source: 'line',
         externalEventId: incoming.externalEventId,
         originalText: incoming.originalText,
+        parserConfidence: incoming.parserConfidence,
       });
       imported += 1;
       shouldAcknowledge = true;
@@ -137,10 +140,10 @@ export async function syncEventReminder(event: CalendarEvent): Promise<'synced' 
         title: event.title,
         startDateTime: `${event.startDate}T${event.startTime}:00+07:00`,
         reminderMinutesBefore: event.reminderMinutesBefore,
-        enabled: event.lineReminderEnabled && event.reminderMinutesBefore > 0,
+        enabled: event.lineReminderEnabled && event.reminderMinutesBefore >= 0,
       }),
     }, token);
-    return event.lineReminderEnabled && event.reminderMinutesBefore > 0 ? 'synced' : 'disabled';
+    return event.lineReminderEnabled && event.reminderMinutesBefore >= 0 ? 'synced' : 'disabled';
   } catch (caught) {
     if (caught instanceof Error && caught.message.includes('Connect LINE')) return 'not-connected';
     // eslint-disable-next-line no-console -- deliberately development-only diagnostics

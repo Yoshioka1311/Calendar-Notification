@@ -52,8 +52,8 @@ function cleanDraft(draft: EventDraft): EventDraft {
     ...draft,
     title,
     notes: notes || undefined,
-    phoneReminderEnabled: draft.reminderMinutesBefore > 0 && draft.phoneReminderEnabled,
-    lineReminderEnabled: draft.reminderMinutesBefore > 0 && draft.lineReminderEnabled,
+    phoneReminderEnabled: draft.reminderMinutesBefore >= 0 && draft.phoneReminderEnabled,
+    lineReminderEnabled: draft.reminderMinutesBefore >= 0 && draft.lineReminderEnabled,
   };
 }
 
@@ -110,6 +110,7 @@ export async function createEvent(input: CreateEventInput): Promise<EventSaveRes
     source: input.source,
     externalEventId,
     originalText: input.originalText?.trim() || undefined,
+    parserConfidence: input.parserConfidence,
     createdAt: now,
     updatedAt: now,
   };

@@ -72,7 +72,7 @@ export function NotificationBootstrap() {
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
           <Text style={[styles.title, { color: theme.colors.text }]}>Never miss an event</Text>
-          <Text style={[styles.body, { color: theme.colors.textMuted }]}>Calendar Noti can remind you on this phone before an event starts. Your calendar stays on this device, and you can change this permission later in Settings.</Text>
+          <Text style={[styles.body, { color: theme.colors.textMuted }]}>Bousu Calendar can remind you on this phone before an event starts. Your calendar stays on this device, and you can change this permission later in Settings.</Text>
           <Button onPress={() => void allow()}>Allow notifications</Button>
           <Button variant="ghost" onPress={() => void close()} style={styles.later}>Not now</Button>
         </View>

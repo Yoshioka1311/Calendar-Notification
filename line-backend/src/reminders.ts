@@ -4,7 +4,7 @@ export function computeReminderTimes(startDateTime: string, reminderMinutesBefor
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})$/.test(startDateTime)) {
     throw new Error('Invalid event date/time.');
   }
-  if (!Number.isInteger(reminderMinutesBefore) || reminderMinutesBefore < 1 || reminderMinutesBefore > 525_600) {
+  if (!Number.isInteger(reminderMinutesBefore) || reminderMinutesBefore < 0 || reminderMinutesBefore > 525_600) {
     throw new Error('Invalid reminder interval.');
   }
   const start = new Date(startDateTime);
@@ -18,6 +18,10 @@ export function computeReminderTimes(startDateTime: string, reminderMinutesBefor
 export function lineReminderMessage(title: string, startDateTime: string, reminderMinutesBefore: number): string {
   const time = startDateTime.slice(11, 16);
   const date = startDateTime.slice(0, 10).split('-').reverse().join('/');
-  const when = reminderMinutesBefore === 1440 ? `Tomorrow at ${time}` : `${date} at ${time}`;
-  return `Calendar reminder\n${title}\n${when}`;
+  const when = reminderMinutesBefore === 0
+    ? `วันนี้ เวลา ${time} น.`
+    : reminderMinutesBefore === 1440
+      ? `พรุ่งนี้ เวลา ${time} น.`
+      : `${date} เวลา ${time} น.`;
+  return `แจ้งเตือนกิจกรรม\n${title}\n${when}`;
 }

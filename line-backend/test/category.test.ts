@@ -5,10 +5,10 @@ import { detectEventCategory } from '../src/category.ts';
 
 test('detects Thai event categories', () => {
   assert.equal(detectEventCategory('ประชุมทีมประจำสัปดาห์'), 'Meeting');
-  assert.equal(detectEventCategory('สอบคณิตศาสตร์'), 'School');
+  assert.equal(detectEventCategory('สอบคณิตศาสตร์'), 'Exam');
   assert.equal(detectEventCategory('นัดหมอตรวจสุขภาพ'), 'Health');
   assert.equal(detectEventCategory('กำหนดส่งงานด่วน'), 'Important');
-  assert.equal(detectEventCategory('เที่ยวกับครอบครัว'), 'Personal');
+  assert.equal(detectEventCategory('เที่ยวกับครอบครัว'), 'Travel');
 });
 
 test('detects English event categories without matching partial words', () => {
