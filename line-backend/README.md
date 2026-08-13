@@ -52,20 +52,39 @@ LINE_CHANNEL_ACCESS_TOKEN
 
 Never add their values to GitHub, `wrangler.jsonc`, or the Expo application.
 
-For live Discord health checks, also add the Discord bot token as an encrypted runtime secret:
+For Discord health checks and owner-only slash commands, add the bot token as an encrypted **runtime** secret:
 
 ```text
 DISCORD_BOT_TOKEN
 ```
 
-If Discord action endpoints are added later, configure both comma-separated allowlists. Target checks fail closed when either list is absent:
+Add these runtime variables as well. The application ID, public key, owner user ID, guild IDs, and channel IDs are identifiers rather than bot credentials, but keeping all Discord configuration at runtime avoids environment drift:
 
 ```text
+DISCORD_APPLICATION_ID
+DISCORD_APPLICATION_PUBLIC_KEY
+DISCORD_OWNER_USER_ID
 DISCORD_ALLOWED_GUILD_IDS
 DISCORD_ALLOWED_CHANNEL_IDS
 ```
 
-The current mobile Discord module is monitoring-only and exposes no send-message endpoint. Monitoring APIs require the hashed bearer token of a LINE-paired owner device. Structured D1 logs redact secret-like metadata keys, important alerts use a five-minute deduplication cooldown, detailed logs are retained for 30 days, and active alerts are preserved. The Worker checks Discord every minute and delivers pending owner alerts through Expo Push without exposing the Discord token to the app.
+`DISCORD_ALLOWED_GUILD_IDS` accepts a comma-separated list. Slash commands are registered only in those guilds and are accepted only when the caller's Discord user ID exactly matches `DISCORD_OWNER_USER_ID`. The Worker exposes no send-message endpoint. Mobile monitoring APIs require the hashed bearer token of a LINE-paired owner device. Structured D1 logs redact secret-like metadata keys, important alerts use a five-minute deduplication cooldown, detailed logs are retained for 30 days, and active alerts are preserved. The Worker checks Discord every minute and delivers pending owner alerts through Expo Push without exposing the Discord token to the app.
+
+Set this URL under **Discord Developer Portal > General Information > Interactions Endpoint URL**:
+
+```text
+https://calendar-notification.<account>.workers.dev/api/discord/interactions
+```
+
+The endpoint validates Discord's Ed25519 signature and rejects missing, malformed, expired, or invalid signatures. It supports these private guild commands:
+
+```text
+/status
+/health
+/test-alert severity:<warning|error|critical>
+```
+
+Commands register automatically during the next one-minute cron run after all runtime variables are available. A paired owner can also force registration from **Settings > Discord Alerts > Register Discord slash commands**. Select the `applications.commands` scope when installing the app in Discord; no Gateway connection or privileged intent is needed for these HTTP interaction commands.
 
 Discord monitoring endpoints:
 
@@ -77,6 +96,8 @@ GET  /api/discord/alerts
 GET  /api/discord/alerts/:id
 POST /api/discord/alerts/:id/acknowledge
 POST /api/discord/push/register
+POST /api/discord/commands/register
+POST /api/discord/interactions
 ```
 
 Use the deployed webhook URL in LINE Developers:

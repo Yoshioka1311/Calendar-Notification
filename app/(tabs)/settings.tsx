@@ -15,6 +15,7 @@ import {
   scheduleTestNotification,
 } from '@/services/notifications';
 import { lineIntegrationService } from '@/services/lineIntegrationService';
+import { discordMonitoringService } from '@/services/discordMonitoringService';
 import { REMINDER_OPTIONS, reminderLabel } from '@/types/event';
 import type { LineConnectionStatus, LinePairingSession } from '@/types/lineIntegration';
 import type { AppLanguage, ThemeMode, WeekStart } from '@/types/settings';
@@ -28,6 +29,7 @@ export default function SettingsScreen() {
   const [pairing, setPairing] = useState<LinePairingSession>();
   const [lineBusy, setLineBusy] = useState(false);
   const [notificationTestBusy, setNotificationTestBusy] = useState(false);
+  const [discordCommandBusy, setDiscordCommandBusy] = useState(false);
   const notificationTestToolsEnabled = __DEV__ || process.env.EXPO_PUBLIC_ENABLE_NOTIFICATION_TESTS === 'true';
 
   const refreshPermission = async () => {
@@ -130,6 +132,18 @@ export default function SettingsScreen() {
     }
   };
 
+  const registerDiscordCommands = async () => {
+    setDiscordCommandBusy(true);
+    try {
+      const result = await discordMonitoringService.registerDiscordCommands();
+      showToast('Discord commands registered', `${result.commands || 3} command(s) are ready in ${result.guilds} server(s)`);
+    } catch (caught) {
+      showToast('Discord setup is incomplete', caught instanceof Error ? caught.message : 'Please check the Cloudflare runtime variables.');
+    } finally {
+      setDiscordCommandBusy(false);
+    }
+  };
+
   return (
     <Screen title="Settings" subtitle="Make Yoshioka yours">
       <SettingsSection title="NOTIFICATIONS">
@@ -184,6 +198,7 @@ export default function SettingsScreen() {
           onChange={(discordRecoveryNotifications) => void updateSettings({ discordRecoveryNotifications })}
         />
         <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>These settings affect phone notifications only. Backend security and monitoring logs always remain enabled.</Text>
+        <Button variant="secondary" loading={discordCommandBusy} onPress={() => void registerDiscordCommands()} style={styles.inlineButton}>Register Discord slash commands</Button>
       </SettingsSection>
 
       <SettingsSection title="CALENDAR">
@@ -241,7 +256,7 @@ export default function SettingsScreen() {
         ) : null}
       </SettingsSection>
 
-      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Yoshioka · Version 1.3.0</Text>
+      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Yoshioka · Version 1.3.1</Text>
     </Screen>
   );
 }

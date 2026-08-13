@@ -4,6 +4,9 @@ export interface Env {
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   APP_TIME_ZONE: string;
   DISCORD_BOT_TOKEN?: string;
+  DISCORD_APPLICATION_ID?: string;
+  DISCORD_APPLICATION_PUBLIC_KEY?: string;
+  DISCORD_OWNER_USER_ID?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;
   DISCORD_ALLOWED_CHANNEL_IDS?: string;
 }

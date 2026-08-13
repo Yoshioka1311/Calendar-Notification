@@ -56,6 +56,10 @@ export async function registerDiscordPushDevice(input: {
   });
 }
 
+export async function registerDiscordCommands(): Promise<{ guilds: number; commands: number; failedGuilds: number }> {
+  return authenticatedBackendRequest('/api/discord/commands/register', { method: 'POST' });
+}
+
 export const discordMonitoringService = {
   getDiscordHealth,
   getDiscordLogs,
@@ -65,4 +69,5 @@ export const discordMonitoringService = {
   acknowledgeDiscordAlert,
   markDiscordAlertDelivered,
   registerDiscordPushDevice,
+  registerDiscordCommands,
 };

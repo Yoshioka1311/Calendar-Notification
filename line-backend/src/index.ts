@@ -18,6 +18,7 @@ import {
   upsertLineReminder,
 } from './database';
 import { randomPairingCode, randomToken, sha256 } from './crypto';
+import { handleDiscordInteraction, registerDiscordCommands } from './discordInteractions';
 import {
   acknowledgeDiscordAlert,
   getDiscordAlert,
@@ -349,6 +350,16 @@ async function handleDiscordApi(request: Request, env: Env, url: URL): Promise<R
     await recordUnauthorizedDiscordAccess(env.DB, request).catch(() => undefined);
     return json({ error: 'Owner authentication required.' }, 401);
   }
+  if (request.method === 'POST' && url.pathname === '/api/discord/commands/register') {
+    try {
+      const result = await registerDiscordCommands(env, true);
+      return result.failedGuilds > 0
+        ? json({ error: 'Discord rejected command registration.', ...result }, 502)
+        : json({ ok: true, ...result });
+    } catch (caught) {
+      return json({ error: caught instanceof Error ? caught.message : 'Discord command registration failed.' }, 409);
+    }
+  }
   if (request.method === 'POST' && url.pathname === '/api/discord/push/register') {
     const body = await readJsonObject(request);
     const token = typeof body?.token === 'string' ? body.token.trim() : '';
@@ -428,6 +439,7 @@ async function sendDueLineReminders(env: Env): Promise<void> {
 async function runDiscordMonitoring(env: Env): Promise<void> {
   try {
     await getDiscordHealth(env);
+    await registerDiscordCommands(env).catch(() => undefined);
     await sendPendingDiscordPushes(env.DB);
   } catch (caught) {
     console.error('Discord monitoring cron failed.', { error: caught instanceof Error ? caught.message : String(caught) });
@@ -442,12 +454,13 @@ export default {
       return json({
         service: 'calendar-notification-line-api',
         status: 'ok',
-        version: '1.3.0',
+        version: '1.3.1',
         lineReminderScheduler: true,
         timeZone: env.APP_TIME_ZONE,
       });
     }
     if (request.method === 'POST' && url.pathname === '/api/line/webhook') return handleWebhook(request, env);
+    if (url.pathname === '/api/discord/interactions') return handleDiscordInteraction(request, env);
     if (url.pathname.startsWith('/api/discord/')) return handleDiscordApi(request, env, url);
     if (url.pathname.startsWith('/api/devices/') || url.pathname.startsWith('/api/events/') || url.pathname.startsWith('/api/reminders/')) {
       return handleAppApi(request, env, url.pathname);
