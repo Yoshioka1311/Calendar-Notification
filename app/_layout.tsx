@@ -3,6 +3,7 @@ import 'react-native-reanimated';
 import { StatusBar } from 'expo-status-bar';
 
 import { EventProvider } from '@/contexts/EventContext';
+import { DiscordMonitoringProvider } from '@/contexts/DiscordMonitoringContext';
 import { NotificationBootstrap } from '@/components/Notifications/NotificationBootstrap';
 import { SettingsProvider, useSettings } from '@/contexts/SettingsContext';
 import { ToastProvider } from '@/contexts/ToastContext';
@@ -46,15 +47,19 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={navigationTheme}>
       <EventProvider>
-        <ToastProvider>
-          <StatusBar style={theme.dark ? 'light' : 'dark'} />
-          <NotificationBootstrap />
-          <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right', contentStyle: { backgroundColor: theme.colors.background } }}>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="event/[id]" />
-            <Stack.Screen name="event/edit" />
-          </Stack>
-        </ToastProvider>
+        <DiscordMonitoringProvider>
+          <ToastProvider>
+            <StatusBar style={theme.dark ? 'light' : 'dark'} />
+            <NotificationBootstrap />
+            <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right', contentStyle: { backgroundColor: theme.colors.background } }}>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="event/[id]" />
+              <Stack.Screen name="event/edit" />
+              <Stack.Screen name="discord/log/[id]" />
+              <Stack.Screen name="discord/alert/[id]" />
+            </Stack>
+          </ToastProvider>
+        </DiscordMonitoringProvider>
       </EventProvider>
     </ThemeProvider>
   );

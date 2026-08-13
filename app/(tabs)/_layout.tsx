@@ -3,9 +3,11 @@ import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSettings } from '@/contexts/SettingsContext';
+import { useDiscordMonitoring } from '@/contexts/DiscordMonitoringContext';
 
 export default function TabLayout() {
   const { theme } = useSettings();
+  const { unreadCount } = useDiscordMonitoring();
   const insets = useSafeAreaInsets();
 
   return (
@@ -43,8 +45,15 @@ export default function TabLayout() {
       <Tabs.Screen
         name="upcoming"
         options={{
-          title: 'Upcoming',
-          tabBarIcon: ({ color }) => <SymbolView name={{ ios: 'clock.fill', android: 'event_upcoming', web: 'event_upcoming' }} tintColor={color} size={23} />,
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="discord"
+        options={{
+          title: 'Discord',
+          tabBarBadge: unreadCount || undefined,
+          tabBarIcon: ({ color }) => <SymbolView name={{ ios: 'waveform.circle.fill', android: 'monitor_heart', web: 'monitor_heart' }} tintColor={color} size={23} />,
         }}
       />
       <Tabs.Screen

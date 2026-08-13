@@ -36,6 +36,15 @@ function readSettings(value: string | null): AppSettings {
       defaultReminderMinutes: REMINDER_OPTIONS.some((option) => option.minutes === candidate.defaultReminderMinutes)
         ? candidate.defaultReminderMinutes!
         : DEFAULT_SETTINGS.defaultReminderMinutes,
+      discordWarningNotifications: typeof candidate.discordWarningNotifications === 'boolean'
+        ? candidate.discordWarningNotifications
+        : DEFAULT_SETTINGS.discordWarningNotifications,
+      discordErrorNotifications: typeof candidate.discordErrorNotifications === 'boolean'
+        ? candidate.discordErrorNotifications
+        : DEFAULT_SETTINGS.discordErrorNotifications,
+      discordRecoveryNotifications: typeof candidate.discordRecoveryNotifications === 'boolean'
+        ? candidate.discordRecoveryNotifications
+        : DEFAULT_SETTINGS.discordRecoveryNotifications,
     };
   } catch {
     return DEFAULT_SETTINGS;

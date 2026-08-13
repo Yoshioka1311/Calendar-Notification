@@ -55,6 +55,12 @@ async function apiRequest<T>(path: string, init: RequestInit = {}, token?: strin
   }
 }
 
+export async function authenticatedBackendRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = await getStored(TOKEN_KEY);
+  if (!token) throw new Error('Connect LINE in Settings to verify this device as the owner.');
+  return apiRequest<T>(path, init, token);
+}
+
 export async function startLinePairing(): Promise<LinePairingSession> {
   const response = await apiRequest<{ token: string; pairingCode: string; expiresAt: string }>(
     '/api/devices/pairing/start',

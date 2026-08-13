@@ -1,6 +1,6 @@
-# Bousu Calendar
+# Yoshioka
 
-Expo calendar app with native Android/iOS event reminders and optional LINE reminders delivered by a Cloudflare Worker.
+Personal Expo app with two primary modules: Calendar and Discord Bot Monitoring. Calendar keeps native Android/iOS event reminders and LINE event sync. Discord shows owner-only health, structured activity logs, alerts, acknowledgements, and native alert deep links backed by Cloudflare Workers and D1.
 
 ## Run locally
 
@@ -39,3 +39,9 @@ npm.cmd run check
 ```
 
 The backend setup and LINE webhook instructions are in [line-backend/README.md](line-backend/README.md).
+
+## Discord monitoring
+
+The Discord tab intentionally contains observability only: Overview, Logs, and Alerts. It does not contain an announcement editor or a Discord bot token. Pair this device with the existing LINE owner flow before monitoring APIs become readable.
+
+Android uses separate `Event Reminders` and `Discord Bot Alerts` notification channels. Foreground alerts can use the native scheduler; background alerts are sent through Expo Push after the paired device securely registers its Expo push token. A physical-device test and valid Android push credentials are still required before treating background delivery as verified.

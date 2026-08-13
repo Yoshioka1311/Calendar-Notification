@@ -1,10 +1,13 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 import type { CalendarEvent } from '@/types/event';
+import type { DiscordAlert } from '@/types/discordMonitoring';
 import { combineLocalDateTime, formatShortDate } from '@/utils/date';
 
 export const EVENT_REMINDER_CHANNEL_ID = 'event-reminders';
+export const DISCORD_ALERT_CHANNEL_ID = 'discord-alerts';
 
 export type NotificationResult =
   | { status: 'scheduled'; notificationId: string; scheduledFor: Date }
@@ -43,11 +46,21 @@ export async function prepareNotifications(): Promise<void> {
 
   await Notifications.setNotificationChannelAsync(EVENT_REMINDER_CHANNEL_ID, {
     name: 'Event Reminders',
-    description: 'High-priority reminders for events saved in Bousu Calendar',
+    description: 'High-priority reminders for events saved in Yoshioka Calendar',
     importance: Notifications.AndroidImportance.HIGH,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     vibrationPattern: [0, 250, 150, 250],
     lightColor: '#5B5BD6',
+    showBadge: true,
+    sound: 'default',
+  });
+  await Notifications.setNotificationChannelAsync(DISCORD_ALERT_CHANNEL_ID, {
+    name: 'Discord Bot Alerts',
+    description: 'Warnings, errors, critical incidents, and recoveries from Yoshioka Discord monitoring',
+    importance: Notifications.AndroidImportance.HIGH,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    vibrationPattern: [0, 300, 120, 300],
+    lightColor: '#5865F2',
     showBadge: true,
     sound: 'default',
   });
@@ -125,7 +138,7 @@ export async function scheduleEventNotification(event: CalendarEvent): Promise<N
 
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Bousu Calendar',
+        title: 'Yoshioka',
         body: reminderBody(event, scheduledFor),
         data: { eventId: event.id, route: `/event/${event.id}` },
         sound: 'default',
@@ -174,7 +187,7 @@ export async function scheduleTestNotification(seconds: number): Promise<string>
 
   const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
-      title: 'Bousu Calendar',
+      title: 'Yoshioka',
       body: 'Notification test successful\nNative notifications are working.',
       data: { test: true },
       sound: 'default',
@@ -188,4 +201,33 @@ export async function scheduleTestNotification(seconds: number): Promise<string>
   });
   debugLog('scheduled test notification', { seconds, notificationId });
   return notificationId;
+}
+
+export async function presentDiscordAlertNotification(alert: DiscordAlert): Promise<string> {
+  if (Platform.OS === 'web') throw new Error('Notifications are unavailable on web.');
+  await prepareNotifications();
+  const permission = await getNotificationPermissionStatus();
+  if (!permission.granted) throw new Error('Notification permission is not enabled.');
+  return Notifications.scheduleNotificationAsync({
+    content: {
+      title: alert.status === 'resolved' ? 'Yoshioka · Discord Recovered' : `Yoshioka · Discord ${alert.severity[0]!.toUpperCase()}${alert.severity.slice(1)}`,
+      body: `${alert.title}\n${alert.message}`,
+      data: { alertId: alert.id, route: `/discord/alert/${alert.id}`, notificationType: 'discord-alert' },
+      sound: 'default',
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+      seconds: 1,
+      repeats: false,
+      channelId: Platform.OS === 'android' ? DISCORD_ALERT_CHANNEL_ID : undefined,
+    },
+  });
+}
+
+export async function getYoshiokaPushToken(): Promise<string | undefined> {
+  if (Platform.OS === 'web') return undefined;
+  if (!(await getNotificationPermissionStatus()).granted) return undefined;
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+  if (typeof projectId !== 'string' || !projectId) throw new Error('EAS project ID is unavailable.');
+  return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 }

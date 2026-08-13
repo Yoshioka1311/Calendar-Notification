@@ -39,7 +39,7 @@ function CalendarContent({ initialDate }: { initialDate: string }) {
     <Screen refreshing={loading} onRefresh={() => void reload()} contentStyle={styles.screen}>
       <View style={styles.header}>
         <Image
-          accessibilityLabel="Bousu Calendar logo"
+          accessibilityLabel="Yoshioka logo"
           source={require('../../assets/branding/bousu-calendar-logo-v2.png')}
           resizeMode="contain"
           style={[styles.logo, { backgroundColor: theme.colors.surface }]}

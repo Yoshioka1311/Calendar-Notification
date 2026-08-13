@@ -1,4 +1,4 @@
-# Calendar Notification LINE API
+# Yoshioka Backend
 
 Cloudflare Worker for receiving LINE Messaging API webhooks. It verifies every webhook signature before parsing, stores events and guided-flow sessions in D1, prevents duplicate delivery, and asks the user to confirm before an event reaches the app.
 
@@ -51,6 +51,33 @@ LINE_CHANNEL_ACCESS_TOKEN
 ```
 
 Never add their values to GitHub, `wrangler.jsonc`, or the Expo application.
+
+For live Discord health checks, also add the Discord bot token as an encrypted runtime secret:
+
+```text
+DISCORD_BOT_TOKEN
+```
+
+If Discord action endpoints are added later, configure both comma-separated allowlists. Target checks fail closed when either list is absent:
+
+```text
+DISCORD_ALLOWED_GUILD_IDS
+DISCORD_ALLOWED_CHANNEL_IDS
+```
+
+The current mobile Discord module is monitoring-only and exposes no send-message endpoint. Monitoring APIs require the hashed bearer token of a LINE-paired owner device. Structured D1 logs redact secret-like metadata keys, important alerts use a five-minute deduplication cooldown, detailed logs are retained for 30 days, and active alerts are preserved. The Worker checks Discord every minute and delivers pending owner alerts through Expo Push without exposing the Discord token to the app.
+
+Discord monitoring endpoints:
+
+```text
+GET  /api/discord/health
+GET  /api/discord/logs
+GET  /api/discord/logs/:id
+GET  /api/discord/alerts
+GET  /api/discord/alerts/:id
+POST /api/discord/alerts/:id/acknowledge
+POST /api/discord/push/register
+```
 
 Use the deployed webhook URL in LINE Developers:
 

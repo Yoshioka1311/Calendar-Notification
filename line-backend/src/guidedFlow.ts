@@ -256,7 +256,7 @@ async function confirmSession(session: LineEventSession, event: LineWebhookEvent
     `${thaiDate(localDate)} · ${startTime} น.`,
     `ประเภท: ${record.category}`,
     `แจ้งเตือน: ${reminderLabel(reminderMinutesBefore)}`,
-    paired ? 'กิจกรรมจะซิงก์เข้า Bousu Calendar อัตโนมัติ' : 'กรุณาเชื่อม Bousu Calendar ในหน้า Settings เพื่อรับกิจกรรมในแอป',
+    paired ? 'กิจกรรมจะซิงก์เข้า Yoshioka Calendar อัตโนมัติ' : 'กรุณาเชื่อม Yoshioka ในหน้า Settings เพื่อรับกิจกรรมในแอป',
   ].join('\n'));
 }
 

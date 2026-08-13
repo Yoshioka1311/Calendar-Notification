@@ -18,6 +18,19 @@ import {
   upsertLineReminder,
 } from './database';
 import { randomPairingCode, randomToken, sha256 } from './crypto';
+import {
+  acknowledgeDiscordAlert,
+  getDiscordAlert,
+  getDiscordHealth,
+  getDiscordLog,
+  listDiscordAlerts,
+  listDiscordLogs,
+  markDiscordAlertDelivered,
+  purgeOldDiscordLogs,
+  recordUnauthorizedDiscordAccess,
+  registerDiscordPushDevice,
+  sendPendingDiscordPushes,
+} from './discordMonitoring';
 import { createEventEntryMessage, handleGuidedPostback, handleGuidedText } from './guidedFlow';
 import { pushToLine, replyToLine, verifyLineSignature, type LineReplyMessage } from './line';
 import { parseEventMessage } from './parser';
@@ -330,6 +343,59 @@ async function handleAppApi(request: Request, env: Env, pathname: string): Promi
   return json({ error: 'Not found.' }, 404);
 }
 
+async function handleDiscordApi(request: Request, env: Env, url: URL): Promise<Response> {
+  const device = await authenticate(request, env);
+  if (!device?.lineUserId) {
+    await recordUnauthorizedDiscordAccess(env.DB, request).catch(() => undefined);
+    return json({ error: 'Owner authentication required.' }, 401);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/discord/push/register') {
+    const body = await readJsonObject(request);
+    const token = typeof body?.token === 'string' ? body.token.trim() : '';
+    const platform = typeof body?.platform === 'string' ? body.platform.slice(0, 20) : undefined;
+    if (!/^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]{20,200}\]$/.test(token)
+      || typeof body?.warnings !== 'boolean' || typeof body?.errors !== 'boolean' || typeof body?.recovery !== 'boolean') {
+      return json({ error: 'Invalid push registration.' }, 400);
+    }
+    await registerDiscordPushDevice(env.DB, device, {
+      token, platform, warnings: body.warnings, errors: body.errors, recovery: body.recovery,
+    });
+    return json({ ok: true });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/discord/health') {
+    return json(await getDiscordHealth(env));
+  }
+  if (request.method === 'GET' && url.pathname === '/api/discord/logs') {
+    return json(await listDiscordLogs(env.DB, url.searchParams));
+  }
+  const logMatch = request.method === 'GET' ? /^\/api\/discord\/logs\/([0-9a-f-]{36})$/i.exec(url.pathname) : null;
+  if (logMatch) {
+    const log = await getDiscordLog(env.DB, logMatch[1]!);
+    return log ? json({ log }) : json({ error: 'Log not found.' }, 404);
+  }
+  if (request.method === 'GET' && url.pathname === '/api/discord/alerts') {
+    return json({ alerts: await listDiscordAlerts(env.DB, device, url.searchParams.get('status') ?? undefined) });
+  }
+  const alertMatch = request.method === 'GET' ? /^\/api\/discord\/alerts\/([0-9a-f-]{36})$/i.exec(url.pathname) : null;
+  if (alertMatch) {
+    const alert = await getDiscordAlert(env.DB, alertMatch[1]!, device);
+    return alert ? json({ alert }) : json({ error: 'Alert not found.' }, 404);
+  }
+  const acknowledgeMatch = request.method === 'POST' ? /^\/api\/discord\/alerts\/([0-9a-f-]{36})\/acknowledge$/i.exec(url.pathname) : null;
+  if (acknowledgeMatch) {
+    return await acknowledgeDiscordAlert(env.DB, acknowledgeMatch[1]!, device)
+      ? json({ ok: true })
+      : json({ error: 'Alert not found.' }, 404);
+  }
+  const deliveredMatch = request.method === 'POST' ? /^\/api\/discord\/alerts\/([0-9a-f-]{36})\/delivered$/i.exec(url.pathname) : null;
+  if (deliveredMatch) {
+    return await markDiscordAlertDelivered(env.DB, deliveredMatch[1]!, device)
+      ? json({ ok: true })
+      : json({ error: 'Alert not found.' }, 404);
+  }
+  return json({ error: 'Not found.' }, 404);
+}
+
 async function sendDueLineReminders(env: Env): Promise<void> {
   if (!env.LINE_CHANNEL_ACCESS_TOKEN) {
     console.error('LINE reminder cron skipped: access token is missing.');
@@ -359,6 +425,15 @@ async function sendDueLineReminders(env: Env): Promise<void> {
   }
 }
 
+async function runDiscordMonitoring(env: Env): Promise<void> {
+  try {
+    await getDiscordHealth(env);
+    await sendPendingDiscordPushes(env.DB);
+  } catch (caught) {
+    console.error('Discord monitoring cron failed.', { error: caught instanceof Error ? caught.message : String(caught) });
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -367,18 +442,21 @@ export default {
       return json({
         service: 'calendar-notification-line-api',
         status: 'ok',
-        version: '1.2.0',
+        version: '1.3.0',
         lineReminderScheduler: true,
         timeZone: env.APP_TIME_ZONE,
       });
     }
     if (request.method === 'POST' && url.pathname === '/api/line/webhook') return handleWebhook(request, env);
+    if (url.pathname.startsWith('/api/discord/')) return handleDiscordApi(request, env, url);
     if (url.pathname.startsWith('/api/devices/') || url.pathname.startsWith('/api/events/') || url.pathname.startsWith('/api/reminders/')) {
       return handleAppApi(request, env, url.pathname);
     }
     return json({ error: 'Not found.' }, 404);
   },
-  async scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
+  async scheduled(controller: ScheduledController, env: Env, context: ExecutionContext): Promise<void> {
     context.waitUntil(sendDueLineReminders(env));
+    context.waitUntil(runDiscordMonitoring(env));
+    if (new Date(controller.scheduledTime).getUTCMinutes() === 0) context.waitUntil(purgeOldDiscordLogs(env.DB));
   },
 };

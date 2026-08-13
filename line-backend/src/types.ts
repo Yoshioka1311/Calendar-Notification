@@ -3,6 +3,50 @@ export interface Env {
   LINE_CHANNEL_SECRET?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   APP_TIME_ZONE: string;
+  DISCORD_BOT_TOKEN?: string;
+  DISCORD_ALLOWED_GUILD_IDS?: string;
+  DISCORD_ALLOWED_CHANNEL_IDS?: string;
+}
+
+export type DiscordHealthState = 'healthy' | 'warning' | 'degraded' | 'critical' | 'offline' | 'unknown';
+export type DiscordServiceState = 'operational' | 'degraded' | 'offline' | 'unknown';
+export type DiscordLogLevel = 'info' | 'success' | 'warning' | 'error' | 'critical';
+export type DiscordLogCategory = 'discord' | 'announcement' | 'api' | 'backend' | 'database' | 'security' | 'permission' | 'rate_limit' | 'system';
+
+export interface DiscordBotLog {
+  id: string;
+  timestamp: string;
+  level: DiscordLogLevel;
+  category: DiscordLogCategory;
+  action: string;
+  message: string;
+  guildId?: string;
+  channelId?: string;
+  discordMessageId?: string;
+  requestId?: string;
+  errorCode?: string;
+  durationMs?: number;
+  successful?: boolean;
+  metadata?: Record<string, unknown>;
+  fingerprint?: string;
+}
+
+export interface DiscordAlert {
+  id: string;
+  logId: string;
+  fingerprint: string;
+  severity: 'warning' | 'error' | 'critical';
+  title: string;
+  message: string;
+  status: 'active' | 'resolved';
+  occurrenceCount: number;
+  firstOccurredAt: string;
+  lastOccurredAt: string;
+  lastNotifiedAt?: string;
+  acknowledgedAt?: string;
+  resolvedAt?: string;
+  recoveryLogId?: string;
+  notificationPending?: boolean;
 }
 
 export interface LineWebhookBody {

@@ -131,7 +131,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <Screen title="Settings" subtitle="Make Bousu Calendar yours">
+    <Screen title="Settings" subtitle="Make Yoshioka yours">
       <SettingsSection title="NOTIFICATIONS">
         <SettingRow
           label="Notifications"
@@ -161,6 +161,29 @@ export default function SettingsScreen() {
             <Button variant="ghost" onPress={() => void inspectScheduledNotifications()} style={styles.inlineButton}>View scheduled notifications</Button>
           </View>
         ) : null}
+      </SettingsSection>
+
+      <SettingsSection title="DISCORD ALERTS">
+        <BooleanSetting
+          label="Warnings"
+          description="Phone alerts for notable recoverable problems"
+          value={settings.discordWarningNotifications}
+          onChange={(discordWarningNotifications) => void updateSettings({ discordWarningNotifications })}
+        />
+        <BooleanSetting
+          label="Errors"
+          description="Phone alerts when Discord actions require attention"
+          value={settings.discordErrorNotifications}
+          onChange={(discordErrorNotifications) => void updateSettings({ discordErrorNotifications })}
+        />
+        <SettingRow label="Critical" description="Important security and availability incidents" value="Always on" valueColor={theme.colors.danger} />
+        <BooleanSetting
+          label="Recovery notifications"
+          description="Tell me when a failed service becomes healthy again"
+          value={settings.discordRecoveryNotifications}
+          onChange={(discordRecoveryNotifications) => void updateSettings({ discordRecoveryNotifications })}
+        />
+        <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>These settings affect phone notifications only. Backend security and monitoring logs always remain enabled.</Text>
       </SettingsSection>
 
       <SettingsSection title="CALENDAR">
@@ -218,7 +241,7 @@ export default function SettingsScreen() {
         ) : null}
       </SettingsSection>
 
-      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Bousu Calendar · Version 1.2.0</Text>
+      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Yoshioka · Version 1.3.0</Text>
     </Screen>
   );
 }
@@ -262,6 +285,25 @@ function OptionChip({ label, selected, onPress }: { label: string; selected: boo
         { backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surfaceElevated, borderColor: selected ? theme.colors.primary : theme.colors.border },
       ]}>
       <Text style={[styles.optionText, { color: selected ? theme.colors.primary : theme.colors.text }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function BooleanSetting({ label, description, value, onChange }: { label: string; description: string; value: boolean; onChange: (value: boolean) => void }) {
+  const { theme } = useSettings();
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+      onPress={() => onChange(!value)}
+      style={styles.row}>
+      <View style={styles.rowCopy}>
+        <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
+        <Text style={[styles.rowDescription, { color: theme.colors.textMuted }]}>{description}</Text>
+      </View>
+      <View style={[styles.toggle, { backgroundColor: value ? theme.colors.primary : theme.colors.border }]}>
+        <View style={[styles.toggleKnob, { transform: [{ translateX: value ? 18 : 0 }] }]} />
+      </View>
     </Pressable>
   );
 }
@@ -310,4 +352,6 @@ const styles = StyleSheet.create({
   simulator: { marginTop: 14 },
   simulatorNote: { fontSize: 10, lineHeight: 15, marginBottom: 8 },
   version: { textAlign: 'center', fontSize: 11, marginTop: 2, marginBottom: 14 },
+  toggle: { width: 44, height: 26, borderRadius: 999, padding: 3, justifyContent: 'center' },
+  toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF' },
 });
