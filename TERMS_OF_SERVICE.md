@@ -1,12 +1,12 @@
 # Yoshioka Terms of Service
 
-**Effective date:** August 13, 2026
+**Effective date:** August 14, 2026
 
 These Terms of Service ("Terms") govern access to and use of Yoshioka, including its Calendar features, LINE integration, Discord bot monitoring and announcement features, mobile application, web interface, and Cloudflare-hosted backend (collectively, the "Service"). By installing, connecting, or using the Service, you agree to these Terms.
 
 ## 1. Purpose of the Service
 
-Yoshioka is a personal productivity and observability tool. It provides calendar and reminder features, optional LINE-to-calendar synchronization, a Discord monitoring center, and an owner-authenticated web composer for announcements to configured Discord channels.
+Yoshioka is a personal productivity and observability tool. It provides calendar and reminder features, optional LINE-to-calendar synchronization, a Discord monitoring center, and an approved-email-authenticated web composer for announcements to configured Discord channels.
 
 The Discord mobile module remains a monitoring interface. Discord Studio is a separate private web interface and is not a public announcement service.
 

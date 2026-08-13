@@ -40,5 +40,7 @@ test('serves the Discord Studio with a restrictive browser security policy', asy
   assert.equal(response.headers.get('x-frame-options'), 'DENY');
   const html = await response.text();
   assert.match(html, /<script src="\/discord\/app\.js" defer><\/script>/);
+  assert.match(html, /id="composer"/);
+  assert.doesNotMatch(html, /Create one-time access code|Owner access required|pairButton|accessPanel|WEB [A-Z2-9]/i);
   assert.doesNotMatch(html, /DISCORD_BOT_TOKEN|Authorization:\s*Bot/i);
 });

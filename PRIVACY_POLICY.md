@@ -1,6 +1,6 @@
 # Yoshioka Privacy Policy
 
-**Effective date:** August 13, 2026
+**Effective date:** August 14, 2026
 
 This Privacy Policy explains how Yoshioka processes information when you use its Calendar features, LINE integration, Discord bot monitoring and announcement features, mobile application, web interface, and Cloudflare-hosted backend (collectively, the "Service").
 
@@ -30,6 +30,7 @@ Calendar records created or imported by the mobile application are primarily sto
 - device platform, connection status, and last-seen timestamps;
 - one-time pairing-code hash and expiration time;
 - Expo push token and Discord notification preferences when push notifications are enabled.
+- approved email address contained in a Cloudflare Access assertion when Discord Studio is used; the email is checked against the configured allowlist, and a derived cryptographic hash is used for rate limiting and duplicate-request protection.
 
 ### Discord monitoring data
 
@@ -38,7 +39,7 @@ Calendar records created or imported by the mobile application are primarily sto
 - Discord guild, channel, or message identifiers when relevant to a monitored operation;
 - redacted and size-limited technical metadata;
 - alert delivery and acknowledgement status for a paired owner device.
-- owner-authenticated Discord Studio session, announcement request, idempotency, channel, delivery, and rate-limit records;
+- approved-email-authenticated Discord Studio announcement request, idempotency, channel, delivery, and rate-limit records;
 - announcement content and embed data sent to Discord, which Discord processes under its own policies.
 
 ### Security and diagnostic data
@@ -71,6 +72,7 @@ Yoshioka does not sell personal information and does not use Service data for ad
 Information may be processed by or transmitted through the following providers only as needed for enabled features:
 
 - **Cloudflare Workers and D1** for backend execution, persistence, scheduled jobs, and security controls;
+- **Cloudflare Access** for email-based authentication to the private Discord Studio;
 - **Expo Push Notification Service and EAS** for application builds and delivery of enabled mobile push notifications;
 - **LINE Messaging API** for receiving bot messages, replying to users, and delivering enabled LINE reminders;
 - **Discord API** for bot authentication, service-health checks, allowed-channel lookup, and explicitly authorized announcement delivery;
@@ -81,7 +83,7 @@ Information may also be disclosed when reasonably necessary to comply with appli
 ## 4. Retention
 
 - One-time pairing codes expire after **10 minutes** and are cleared when pairing succeeds.
-- Discord Studio browser sessions expire after **12 hours of inactivity** and can be revoked with Log out.
+- Discord Studio sign-in sessions are controlled by the configured Cloudflare Access policy. Yoshioka does not create a separate LINE-linked browser session for Discord Studio.
 - In-progress LINE guided-event sessions expire after **30 minutes** and are deleted when completed or cancelled.
 - Detailed Discord monitoring logs are scheduled for deletion after **30 days**.
 - Active unresolved Discord alerts and logs required to explain those alerts may be retained beyond 30 days until the alert is resolved.
@@ -92,7 +94,7 @@ Where a fixed retention period is not stated, information is retained only for a
 
 ## 5. Security
 
-Yoshioka uses measures designed to reduce unauthorized access, including encrypted backend secrets, LINE webhook signature verification, cryptographically random device and web-session tokens, hashed bearer-token storage, one-time pairing codes, expiration limits, owner-only monitoring and announcement APIs, secure same-site cookies, restrictive browser security headers, input limits, idempotency checks, disabled Discord mention parsing, structured-log redaction, alert deduplication, rate limiting, and fail-closed Discord target allowlists.
+Yoshioka uses measures designed to reduce unauthorized access, including encrypted backend secrets, LINE webhook signature verification, cryptographically random device tokens, hashed bearer-token storage, one-time device-pairing codes, expiration limits, Cloudflare Access JWT signature, issuer, audience, algorithm, and email-allowlist validation, owner-only monitoring and announcement APIs, restrictive browser security headers, input limits, idempotency checks, disabled Discord mention parsing, structured-log redaction, alert deduplication, rate limiting, and fail-closed Discord target allowlists.
 
 No transmission or storage method is completely secure. You are responsible for protecting your device and provider accounts and for rotating any credential that may have been exposed.
 

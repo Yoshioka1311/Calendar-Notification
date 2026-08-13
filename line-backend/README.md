@@ -4,7 +4,7 @@ Cloudflare Worker for receiving LINE Messaging API webhooks. It verifies every w
 
 The Expo app creates a one-time, 8-character pairing code in Settings. Send `LINK CODE` to the LINE bot within 10 minutes. Confirmed events are imported when the app opens, returns to the foreground, or while it remains open (a one-minute polling interval). Phone reminders use the device scheduler, while LINE reminders are stored and delivered independently by this Worker.
 
-The same Worker serves a private Discord announcement composer at `/discord`. Select **Create one-time access code**, then send `WEB CODE` to the paired owner's LINE bot. The browser session uses an HttpOnly secure cookie, expires after 12 hours of inactivity, and can send only to the configured guild/channel allowlist.
+The same Worker serves the Discord announcement composer at `/discord`. Discord Studio no longer uses LINE pairing. Its sending APIs instead require a valid Cloudflare Access JWT for an explicitly approved email address, and can send only to the configured guild/channel allowlist. Until email access is configured, the composer remains visible but sending fails closed.
 
 ## LINE reminder delivery
 
@@ -70,6 +70,16 @@ DISCORD_ALLOWED_GUILD_IDS
 DISCORD_ALLOWED_CHANNEL_IDS
 ```
 
+Discord Studio email authentication also requires these runtime variables:
+
+```text
+CF_ACCESS_TEAM_DOMAIN=https://<team-name>.cloudflareaccess.com
+CF_ACCESS_AUD=<Access application audience tag>
+DISCORD_STUDIO_ALLOWED_EMAILS=owner@example.com
+```
+
+`DISCORD_STUDIO_ALLOWED_EMAILS` accepts a comma-separated list and is checked in the Worker after Cloudflare validates the login. Do not store a one-time PIN, password, or Access JWT in these variables.
+
 `DISCORD_ALLOWED_GUILD_IDS` accepts a comma-separated list. Slash commands are registered only in those guilds and are accepted only when the caller's Discord user ID exactly matches `DISCORD_OWNER_USER_ID`. The only send-message endpoint belongs to the private Discord Studio flow described below; the mobile app remains monitoring-only. Mobile monitoring APIs require the hashed bearer token of a LINE-paired owner device. Structured D1 logs redact secret-like metadata keys, important alerts use a five-minute deduplication cooldown, detailed logs are retained for 30 days, and active alerts are preserved. The Worker checks Discord every minute and delivers pending owner alerts through Expo Push without exposing the Discord token to the app or website.
 
 Discord Studio is available after deployment at:
@@ -78,7 +88,9 @@ Discord Studio is available after deployment at:
 https://calendar-notification.<account>.workers.dev/discord
 ```
 
-It supports plain message content plus one embed with title, description, HTTPS link, accent color, HTTPS image, thumbnail, and footer. Bot credentials never reach the browser. Delivery is owner-only, same-origin protected, limited to five sends per minute, idempotent against duplicate clicks, constrained by both allowlists, and uses `allowed_mentions.parse: []` to prevent accidental mass mentions. The bot needs **View Channel**, **Send Messages**, and **Embed Links** in each configured channel.
+It supports plain message content plus one embed with title, description, HTTPS link, accent color, HTTPS image, thumbnail, and footer. Bot credentials never reach the browser. Delivery is approved-email-only, same-origin protected, limited to five sends per minute per approved email, idempotent against duplicate clicks, constrained by both Discord allowlists, and uses `allowed_mentions.parse: []` to prevent accidental mass mentions. The bot needs **View Channel**, **Send Messages**, and **Embed Links** in each configured channel.
+
+In Cloudflare Zero Trust, create a self-hosted Access application that protects both `/discord*` and `/api/discord/web/*` on the Worker hostname. Enable the One-time PIN identity provider and create an **Allow** policy containing only the exact email addresses that may use Discord Studio. Do not use a policy that permits every valid email. Leave `/api/line/webhook` outside this Access application because LINE must reach that webhook without an interactive login. Copy the Access application audience tag and team domain into the runtime variables above. The Worker independently verifies the Access JWT signature, issuer, audience, algorithm, and approved email before any Discord Studio API operation.
 
 Set this URL under **Discord Developer Portal > General Information > Interactions Endpoint URL**:
 
@@ -109,10 +121,8 @@ POST /api/discord/push/register
 POST /api/discord/commands/register
 POST /api/discord/interactions
 GET  /api/discord/web/session
-POST /api/discord/web/pairing/start
 GET  /api/discord/web/channels
 POST /api/discord/web/announcements
-POST /api/discord/web/logout
 ```
 
 Use the deployed webhook URL in LINE Developers:

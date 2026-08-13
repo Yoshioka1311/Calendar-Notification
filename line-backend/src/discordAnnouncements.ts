@@ -5,8 +5,9 @@ import {
 } from './database';
 import type { AnnouncementInput } from './discordAnnouncementValidation';
 import { parseAnnouncementInput } from './discordAnnouncementValidation';
+import type { DiscordStudioIdentity } from './discordAccess';
 import { isDiscordTargetAllowed, logDiscordEvent } from './discordMonitoring';
-import type { DiscordWebSession, Env } from './types';
+import type { Env } from './types';
 
 const SNOWFLAKE = /^\d{15,22}$/;
 const IDEMPOTENCY_KEY = /^[0-9a-f-]{36}$/i;
@@ -63,13 +64,13 @@ export async function listAllowedDiscordChannels(env: Env): Promise<Array<{ id: 
 
 export async function sendDiscordAnnouncement(
   env: Env,
-  session: DiscordWebSession,
+  identity: DiscordStudioIdentity,
   input: AnnouncementInput,
   idempotencyKey: string,
 ): Promise<{ messageId: string; channelId: string }> {
   if (!IDEMPOTENCY_KEY.test(idempotencyKey)) throw new Error('INVALID_IDEMPOTENCY_KEY');
   if (!env.DISCORD_BOT_TOKEN) throw new Error('DISCORD_NOT_CONFIGURED');
-  const retryAfter = await allowDiscordAnnouncement(env.DB, session.id, Date.now());
+  const retryAfter = await allowDiscordAnnouncement(env.DB, identity.subjectHash, Date.now());
   if (retryAfter > 0) throw new Error(`RATE_LIMITED:${retryAfter}`);
   const channelResponse = await discordRequest(env, `/channels/${input.channelId}`);
   if (!channelResponse.ok) throw new Error(`CHANNEL_HTTP_${channelResponse.status}`);
@@ -82,7 +83,7 @@ export async function sendDiscordAnnouncement(
     });
     throw new Error('TARGET_NOT_ALLOWED');
   }
-  if (await claimDiscordAnnouncement(env.DB, idempotencyKey, session.id, channel.id) === 'duplicate') {
+  if (await claimDiscordAnnouncement(env.DB, idempotencyKey, identity.subjectHash, channel.id) === 'duplicate') {
     throw new Error('DUPLICATE_REQUEST');
   }
   const requestId = crypto.randomUUID();

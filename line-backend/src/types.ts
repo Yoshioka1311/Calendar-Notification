@@ -9,6 +9,9 @@ export interface Env {
   DISCORD_OWNER_USER_ID?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;
   DISCORD_ALLOWED_CHANNEL_IDS?: string;
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
+  DISCORD_STUDIO_ALLOWED_EMAILS?: string;
 }
 
 export type DiscordHealthState = 'healthy' | 'warning' | 'degraded' | 'critical' | 'offline' | 'unknown';
@@ -84,11 +87,6 @@ export interface AppDevice {
   id: string;
   installationId: string;
   lineUserId?: string;
-}
-
-export interface DiscordWebSession {
-  id: string;
-  lineUserId: string;
 }
 
 export interface AcceptedEvent {

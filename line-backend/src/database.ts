@@ -1,4 +1,4 @@
-import type { AcceptedEvent, AppDevice, DiscordWebSession, DueLineReminder, IncomingEventRecord, LineEventSession, LineReminderRecord } from './types';
+import type { AcceptedEvent, AppDevice, DueLineReminder, IncomingEventRecord, LineEventSession, LineReminderRecord } from './types';
 
 type DeviceRow = {
   id: string;
@@ -133,120 +133,38 @@ export async function isDiscordOwner(db: D1Database, lineUserId?: string): Promi
   return Boolean(row);
 }
 
-export async function createDiscordWebPairing(
-  db: D1Database,
-  input: { tokenHash: string; codeHash: string; expiresAt: string },
-): Promise<string> {
-  const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-  await db.prepare(`
-    INSERT INTO discord_web_sessions(
-      id, token_hash, pairing_code_hash, pairing_expires_at,
-      created_at, updated_at, last_seen_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(id, input.tokenHash, input.codeHash, input.expiresAt, now, now, now).run();
-  return id;
-}
-
-export async function completeDiscordWebPairing(
-  db: D1Database,
-  codeHash: string,
-  lineUserId: string,
-): Promise<'linked' | 'invalid' | 'not-owner'> {
-  const now = new Date().toISOString();
-  const session = await db.prepare(`
-    SELECT id FROM discord_web_sessions
-    WHERE pairing_code_hash = ? AND pairing_expires_at > ?
-      AND authenticated_at IS NULL AND revoked_at IS NULL
-    LIMIT 1
-  `).bind(codeHash, now).first<{ id: string }>();
-  if (!session) return 'invalid';
-  const owner = await db.prepare('SELECT line_user_id FROM discord_owner_identity WHERE singleton = 1 LIMIT 1')
-    .first<{ line_user_id: string }>();
-  if (!owner) {
-    const pairedDevice = await db.prepare('SELECT id FROM app_devices WHERE line_user_id = ? LIMIT 1')
-      .bind(lineUserId).first();
-    if (!pairedDevice) return 'not-owner';
-    await db.prepare(`
-      INSERT OR IGNORE INTO discord_owner_identity(singleton, line_user_id, created_at, updated_at)
-      VALUES (1, ?, ?, ?)
-    `).bind(lineUserId, now, now).run();
-  }
-  const confirmedOwner = owner?.line_user_id ?? (await db.prepare(
-    'SELECT line_user_id FROM discord_owner_identity WHERE singleton = 1 LIMIT 1',
-  ).first<{ line_user_id: string }>())?.line_user_id;
-  if (confirmedOwner !== lineUserId) return 'not-owner';
-  const result = await db.prepare(`
-    UPDATE discord_web_sessions SET line_user_id = ?, authenticated_at = ?,
-      pairing_code_hash = NULL, pairing_expires_at = NULL, updated_at = ?, last_seen_at = ?
-    WHERE id = ? AND authenticated_at IS NULL AND revoked_at IS NULL
-  `).bind(lineUserId, now, now, now, session.id).run();
-  return (result.meta.changes ?? 0) > 0 ? 'linked' : 'invalid';
-}
-
-export async function authenticateDiscordWebSession(
-  db: D1Database,
-  tokenHash: string,
-): Promise<DiscordWebSession | undefined> {
-  const activeAfter = new Date(Date.now() - 12 * 60 * 60_000).toISOString();
-  const row = await db.prepare(`
-    SELECT discord_web_sessions.id, discord_web_sessions.line_user_id
-    FROM discord_web_sessions
-    INNER JOIN discord_owner_identity
-      ON discord_owner_identity.singleton = 1
-      AND discord_owner_identity.line_user_id = discord_web_sessions.line_user_id
-    WHERE discord_web_sessions.token_hash = ?
-      AND discord_web_sessions.authenticated_at IS NOT NULL
-      AND discord_web_sessions.last_seen_at > ?
-      AND discord_web_sessions.revoked_at IS NULL
-    LIMIT 1
-  `).bind(tokenHash, activeAfter).first<{ id: string; line_user_id: string }>();
-  if (!row) return undefined;
-  await db.prepare('UPDATE discord_web_sessions SET last_seen_at = ?, updated_at = ? WHERE id = ?')
-    .bind(new Date().toISOString(), new Date().toISOString(), row.id).run();
-  return { id: row.id, lineUserId: row.line_user_id };
-}
-
-export async function revokeDiscordWebSession(db: D1Database, id: string): Promise<void> {
-  const now = new Date().toISOString();
-  await db.prepare(`
-    UPDATE discord_web_sessions SET revoked_at = ?, updated_at = ?,
-      pairing_code_hash = NULL, pairing_expires_at = NULL WHERE id = ?
-  `).bind(now, now, id).run();
-}
-
-export async function allowDiscordAnnouncement(db: D1Database, sessionId: string, nowMs: number): Promise<number> {
+export async function allowDiscordAnnouncement(db: D1Database, subjectHash: string, nowMs: number): Promise<number> {
   const windowMs = 60_000;
   const maxAttempts = 5;
   const row = await db.prepare(`
-    SELECT window_started_at, attempts FROM discord_announcement_windows WHERE session_id = ? LIMIT 1
-  `).bind(sessionId).first<{ window_started_at: number; attempts: number }>();
+    SELECT window_started_at, attempts FROM discord_announcement_windows WHERE subject_hash = ? LIMIT 1
+  `).bind(subjectHash).first<{ window_started_at: number; attempts: number }>();
   if (!row || nowMs - row.window_started_at >= windowMs) {
     await db.prepare(`
-      INSERT INTO discord_announcement_windows(session_id, window_started_at, attempts)
-      VALUES (?, ?, 1) ON CONFLICT(session_id) DO UPDATE SET
+      INSERT INTO discord_announcement_windows(subject_hash, window_started_at, attempts)
+      VALUES (?, ?, 1) ON CONFLICT(subject_hash) DO UPDATE SET
         window_started_at = excluded.window_started_at, attempts = 1
-    `).bind(sessionId, nowMs).run();
+    `).bind(subjectHash, nowMs).run();
     return 0;
   }
   if (row.attempts >= maxAttempts) return Math.max(1, Math.ceil((windowMs - (nowMs - row.window_started_at)) / 1000));
-  await db.prepare('UPDATE discord_announcement_windows SET attempts = attempts + 1 WHERE session_id = ?')
-    .bind(sessionId).run();
+  await db.prepare('UPDATE discord_announcement_windows SET attempts = attempts + 1 WHERE subject_hash = ?')
+    .bind(subjectHash).run();
   return 0;
 }
 
 export async function claimDiscordAnnouncement(
   db: D1Database,
   idempotencyKey: string,
-  sessionId: string,
+  subjectHash: string,
   channelId: string,
 ): Promise<'claimed' | 'duplicate'> {
   const now = new Date().toISOString();
   const result = await db.prepare(`
     INSERT OR IGNORE INTO discord_announcement_requests(
-      idempotency_key, session_id, channel_id, status, created_at, updated_at
+      idempotency_key, subject_hash, channel_id, status, created_at, updated_at
     ) VALUES (?, ?, ?, 'processing', ?, ?)
-  `).bind(idempotencyKey, sessionId, channelId, now, now).run();
+  `).bind(idempotencyKey, subjectHash, channelId, now, now).run();
   return (result.meta.changes ?? 0) > 0 ? 'claimed' : 'duplicate';
 }
 
