@@ -40,6 +40,11 @@ npm.cmd run check
 
 The backend setup and LINE webhook instructions are in [line-backend/README.md](line-backend/README.md).
 
+## Policies
+
+- [Terms of Service](TERMS_OF_SERVICE.md)
+- [Privacy Policy](PRIVACY_POLICY.md)
+
 ## Discord monitoring
 
 The Discord tab intentionally contains observability only: Overview, Logs, and Alerts. It does not contain an announcement editor or a Discord bot token. Pair this device with the existing LINE owner flow before monitoring APIs become readable.
