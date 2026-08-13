@@ -86,6 +86,11 @@ export interface AppDevice {
   lineUserId?: string;
 }
 
+export interface DiscordWebSession {
+  id: string;
+  lineUserId: string;
+}
+
 export interface AcceptedEvent {
   id: string;
   externalEventId: string;

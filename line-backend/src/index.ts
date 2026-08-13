@@ -1,24 +1,31 @@
 import {
   authenticateDevice,
+  authenticateDiscordWebSession,
   allowPairingAttempt,
+  completeDiscordWebPairing,
   completePairing,
+  createDiscordWebPairing,
   claimLineReminder,
   decideIncomingEvent,
   disableLineReminder,
   finishLineReminder,
   getAcceptedEventForReminder,
   isLineUserPaired,
+  isDiscordOwner,
   isWebhookProcessed,
   listAcceptedEvents,
   listDueLineReminders,
   markEventDelivered,
   markWebhookProcessed,
   saveIncomingEvent,
+  revokeDiscordWebSession,
   upsertPairingSession,
   upsertLineReminder,
 } from './database';
 import { randomPairingCode, randomToken, sha256 } from './crypto';
+import { listAllowedDiscordChannels, parseAnnouncementInput, sendDiscordAnnouncement } from './discordAnnouncements';
 import { handleDiscordInteraction, registerDiscordCommands } from './discordInteractions';
+import { serveDiscordWeb } from './discordWeb';
 import {
   acknowledgeDiscordAlert,
   getDiscordAlert,
@@ -36,13 +43,13 @@ import { createEventEntryMessage, handleGuidedPostback, handleGuidedText } from 
 import { pushToLine, replyToLine, verifyLineSignature, type LineReplyMessage } from './line';
 import { parseEventMessage } from './parser';
 import { computeReminderTimes, lineReminderMessage } from './reminders';
-import type { AppDevice, Env, IncomingEventRecord, LineWebhookBody, LineWebhookEvent } from './types';
+import type { AppDevice, DiscordWebSession, Env, IncomingEventRecord, LineWebhookBody, LineWebhookEvent } from './types';
 
 const MAX_BODY_BYTES = 256 * 1024;
-const API_BODY_BYTES = 8 * 1024;
+const API_BODY_BYTES = 16 * 1024;
 const PAIRING_LIFETIME_MS = 10 * 60 * 1000;
 
-function json(data: unknown, status = 200): Response {
+function json(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -52,6 +59,7 @@ function json(data: unknown, status = 200): Response {
       'Cache-Control': 'no-store',
       'Content-Type': 'application/json; charset=utf-8',
       'X-Content-Type-Options': 'nosniff',
+      ...extraHeaders,
     },
   });
 }
@@ -130,6 +138,24 @@ async function handlePairingCommand(event: LineWebhookEvent, lineUserId: string,
   return true;
 }
 
+async function handleDiscordWebPairingCommand(
+  event: LineWebhookEvent,
+  lineUserId: string,
+  text: string,
+  env: Env,
+): Promise<boolean> {
+  const match = /^WEB\s+([A-Z2-9]{8})$/i.exec(text);
+  if (!match) return false;
+  const result = await completeDiscordWebPairing(env.DB, await sha256(match[1]!.toUpperCase()), lineUserId);
+  const message = result === 'linked'
+    ? 'เชื่อมต่อ Yoshioka Discord Studio สำเร็จแล้ว กลับไปที่หน้าเว็บเพื่อเริ่มสร้างประกาศได้เลย'
+    : result === 'not-owner'
+      ? 'บัญชี LINE นี้ไม่ใช่บัญชีเจ้าของ Yoshioka จึงไม่สามารถเปิดสิทธิ์หน้า Discord Studio ได้'
+      : 'รหัสเชื่อมต่อหน้าเว็บไม่ถูกต้องหรือหมดอายุแล้ว กรุณาสร้างรหัสใหม่จากหน้า Discord Studio';
+  await replyIfPossible(event, [textMessage(message)], env);
+  return true;
+}
+
 async function handlePostback(event: LineWebhookEvent, env: Env): Promise<void> {
   const guided = await handleGuidedPostback(event, env);
   if (guided.handled) {
@@ -202,6 +228,7 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
       await replyIfPossible(event, [textMessage(failureMessage())], env);
       return;
     }
+    if (await handleDiscordWebPairingCommand(event, lineUserId, originalText, env)) return;
     if (await handlePairingCommand(event, lineUserId, originalText, env)) return;
 
     const guided = await handleGuidedText(event, lineUserId, messageId, originalText, env);
@@ -263,6 +290,84 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
 async function authenticate(request: Request, env: Env): Promise<AppDevice | undefined> {
   const match = /^Bearer\s+([a-f0-9]{64})$/i.exec(request.headers.get('authorization') ?? '');
   return match ? authenticateDevice(env.DB, await sha256(match[1]!)) : undefined;
+}
+
+function discordWebToken(request: Request): string | undefined {
+  const match = /(?:^|;\s*)__Host-yoshioka_owner=([a-f0-9]{64})(?:;|$)/i.exec(request.headers.get('cookie') ?? '');
+  return match?.[1];
+}
+
+async function authenticateDiscordWeb(request: Request, env: Env): Promise<DiscordWebSession | undefined> {
+  const token = discordWebToken(request);
+  return token ? authenticateDiscordWebSession(env.DB, await sha256(token)) : undefined;
+}
+
+function sameOrigin(request: Request): boolean {
+  const origin = request.headers.get('origin');
+  return Boolean(origin && origin === new URL(request.url).origin);
+}
+
+async function startDiscordWebPairing(request: Request, env: Env): Promise<Response> {
+  if (!sameOrigin(request) || !request.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+    return json({ error: 'Same-origin JSON request required.' }, 403);
+  }
+  const clientAddress = request.headers.get('cf-connecting-ip') ?? 'local-development';
+  if (!(await allowPairingAttempt(env.DB, await sha256(`discord-web-pairing:${clientAddress}`), Date.now()))) {
+    return json({ error: 'Too many pairing attempts. Please try again later.' }, 429);
+  }
+  const token = randomToken();
+  const pairingCode = randomPairingCode();
+  const expiresAt = new Date(Date.now() + PAIRING_LIFETIME_MS).toISOString();
+  await createDiscordWebPairing(env.DB, {
+    tokenHash: await sha256(token),
+    codeHash: await sha256(pairingCode),
+    expiresAt,
+  });
+  return json({ pairingCode, expiresAt }, 200, {
+    'Set-Cookie': `__Host-yoshioka_owner=${token}; Path=/; Max-Age=43200; HttpOnly; Secure; SameSite=Strict`,
+  });
+}
+
+async function handleDiscordWebApi(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method === 'POST' && url.pathname === '/api/discord/web/pairing/start') {
+    return startDiscordWebPairing(request, env);
+  }
+  const session = await authenticateDiscordWeb(request, env);
+  if (request.method === 'GET' && url.pathname === '/api/discord/web/session') {
+    return json({ authenticated: Boolean(session) });
+  }
+  if (!session) return json({ error: 'Owner authentication required.' }, 401);
+  if (request.method === 'POST' && !sameOrigin(request)) return json({ error: 'Same-origin request required.' }, 403);
+  if (request.method === 'POST' && url.pathname === '/api/discord/web/logout') {
+    await revokeDiscordWebSession(env.DB, session.id);
+    return json({ ok: true }, 200, {
+      'Set-Cookie': '__Host-yoshioka_owner=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict',
+    });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/discord/web/channels') {
+    if (!env.DISCORD_BOT_TOKEN) return json({ error: 'Discord Bot Token is not configured in Cloudflare.' }, 503);
+    return json({ channels: await listAllowedDiscordChannels(env) });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/discord/web/announcements') {
+    const body = await readJsonObject(request);
+    const input = parseAnnouncementInput(body);
+    const idempotencyKey = request.headers.get('idempotency-key') ?? '';
+    if (!input) return json({ error: 'Add valid message or embed content and select an allowed channel.' }, 400);
+    try {
+      return json({ ok: true, ...(await sendDiscordAnnouncement(env, session, input, idempotencyKey)) });
+    } catch (caught) {
+      const code = caught instanceof Error ? caught.message : 'ANNOUNCEMENT_FAILED';
+      if (code.startsWith('RATE_LIMITED:')) return json({ error: `Please wait ${code.split(':')[1]} seconds before sending again.` }, 429);
+      if (code === 'TARGET_NOT_ALLOWED') return json({ error: 'This Discord channel is not in the server/channel allowlist.' }, 403);
+      if (code === 'DUPLICATE_REQUEST') return json({ error: 'This send request was already processed.' }, 409);
+      if (code === 'INVALID_IDEMPOTENCY_KEY') return json({ error: 'Invalid request identifier.' }, 400);
+      if (code === 'DISCORD_NOT_CONFIGURED') return json({ error: 'Discord Bot Token is not configured in Cloudflare.' }, 503);
+      if (code === 'HTTP_403') return json({ error: 'Discord denied access. Check View Channel, Send Messages, and Embed Links permissions.' }, 502);
+      if (code === 'HTTP_429') return json({ error: 'Discord rate-limited this request. Please wait before trying again.' }, 429);
+      return json({ error: 'Discord could not send this announcement. Check the monitoring logs for details.' }, 502);
+    }
+  }
+  return json({ error: 'Not found.' }, 404);
 }
 
 async function startPairing(request: Request, env: Env): Promise<Response> {
@@ -346,7 +451,7 @@ async function handleAppApi(request: Request, env: Env, pathname: string): Promi
 
 async function handleDiscordApi(request: Request, env: Env, url: URL): Promise<Response> {
   const device = await authenticate(request, env);
-  if (!device?.lineUserId) {
+  if (!device?.lineUserId || !(await isDiscordOwner(env.DB, device.lineUserId))) {
     await recordUnauthorizedDiscordAccess(env.DB, request).catch(() => undefined);
     return json({ error: 'Owner authentication required.' }, 401);
   }
@@ -454,13 +559,16 @@ export default {
       return json({
         service: 'calendar-notification-line-api',
         status: 'ok',
-        version: '1.3.1',
+        version: '1.4.0',
         lineReminderScheduler: true,
         timeZone: env.APP_TIME_ZONE,
       });
     }
+    const discordWeb = request.method === 'GET' ? serveDiscordWeb(url.pathname) : undefined;
+    if (discordWeb) return discordWeb;
     if (request.method === 'POST' && url.pathname === '/api/line/webhook') return handleWebhook(request, env);
     if (url.pathname === '/api/discord/interactions') return handleDiscordInteraction(request, env);
+    if (url.pathname.startsWith('/api/discord/web/')) return handleDiscordWebApi(request, env, url);
     if (url.pathname.startsWith('/api/discord/')) return handleDiscordApi(request, env, url);
     if (url.pathname.startsWith('/api/devices/') || url.pathname.startsWith('/api/events/') || url.pathname.startsWith('/api/reminders/')) {
       return handleAppApi(request, env, url.pathname);

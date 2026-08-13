@@ -2,7 +2,7 @@
 
 **Effective date:** August 13, 2026
 
-This Privacy Policy explains how Yoshioka processes information when you use its Calendar features, LINE integration, Discord bot monitoring features, mobile application, and Cloudflare-hosted backend (collectively, the "Service").
+This Privacy Policy explains how Yoshioka processes information when you use its Calendar features, LINE integration, Discord bot monitoring and announcement features, mobile application, web interface, and Cloudflare-hosted backend (collectively, the "Service").
 
 ## 1. Information Processed by Yoshioka
 
@@ -38,6 +38,8 @@ Calendar records created or imported by the mobile application are primarily sto
 - Discord guild, channel, or message identifiers when relevant to a monitored operation;
 - redacted and size-limited technical metadata;
 - alert delivery and acknowledgement status for a paired owner device.
+- owner-authenticated Discord Studio session, announcement request, idempotency, channel, delivery, and rate-limit records;
+- announcement content and embed data sent to Discord, which Discord processes under its own policies.
 
 ### Security and diagnostic data
 
@@ -71,7 +73,7 @@ Information may be processed by or transmitted through the following providers o
 - **Cloudflare Workers and D1** for backend execution, persistence, scheduled jobs, and security controls;
 - **Expo Push Notification Service and EAS** for application builds and delivery of enabled mobile push notifications;
 - **LINE Messaging API** for receiving bot messages, replying to users, and delivering enabled LINE reminders;
-- **Discord API** for bot authentication and service-health checks, and for future explicitly authorized Discord operations;
+- **Discord API** for bot authentication, service-health checks, allowed-channel lookup, and explicitly authorized announcement delivery;
 - **Apple, Google, and the device operating system** for application distribution and native notification delivery.
 
 Information may also be disclosed when reasonably necessary to comply with applicable law, enforce these policies, protect the Service or connected accounts, or investigate suspected abuse. Source code hosted on GitHub does not include production bot tokens or channel secrets.
@@ -79,6 +81,7 @@ Information may also be disclosed when reasonably necessary to comply with appli
 ## 4. Retention
 
 - One-time pairing codes expire after **10 minutes** and are cleared when pairing succeeds.
+- Discord Studio browser sessions expire after **12 hours of inactivity** and can be revoked with Log out.
 - In-progress LINE guided-event sessions expire after **30 minutes** and are deleted when completed or cancelled.
 - Detailed Discord monitoring logs are scheduled for deletion after **30 days**.
 - Active unresolved Discord alerts and logs required to explain those alerts may be retained beyond 30 days until the alert is resolved.
@@ -89,7 +92,7 @@ Where a fixed retention period is not stated, information is retained only for a
 
 ## 5. Security
 
-Yoshioka uses measures designed to reduce unauthorized access, including encrypted backend secrets, LINE webhook signature verification, cryptographically random device tokens, hashed bearer-token storage, one-time pairing codes, expiration limits, owner-only monitoring APIs, input limits, structured-log redaction, alert deduplication, rate limiting, and fail-closed Discord target allowlists.
+Yoshioka uses measures designed to reduce unauthorized access, including encrypted backend secrets, LINE webhook signature verification, cryptographically random device and web-session tokens, hashed bearer-token storage, one-time pairing codes, expiration limits, owner-only monitoring and announcement APIs, secure same-site cookies, restrictive browser security headers, input limits, idempotency checks, disabled Discord mention parsing, structured-log redaction, alert deduplication, rate limiting, and fail-closed Discord target allowlists.
 
 No transmission or storage method is completely secure. You are responsible for protecting your device and provider accounts and for rotating any credential that may have been exposed.
 

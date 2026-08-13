@@ -4,6 +4,8 @@ Cloudflare Worker for receiving LINE Messaging API webhooks. It verifies every w
 
 The Expo app creates a one-time, 8-character pairing code in Settings. Send `LINK CODE` to the LINE bot within 10 minutes. Confirmed events are imported when the app opens, returns to the foreground, or while it remains open (a one-minute polling interval). Phone reminders use the device scheduler, while LINE reminders are stored and delivered independently by this Worker.
 
+The same Worker serves a private Discord announcement composer at `/discord`. Select **Create one-time access code**, then send `WEB CODE` to the paired owner's LINE bot. The browser session uses an HttpOnly secure cookie, expires after 12 hours of inactivity, and can send only to the configured guild/channel allowlist.
+
 ## LINE reminder delivery
 
 The Worker runs a cron trigger every minute, claims due rows in `line_reminders`, sends them with the LINE Messaging API push endpoint, and records `sent_at`. Conditional claims and the sent timestamp prevent duplicate delivery when cron executions overlap. Failed sends release the claim so a later execution can retry while the event is still in the future.
@@ -68,7 +70,15 @@ DISCORD_ALLOWED_GUILD_IDS
 DISCORD_ALLOWED_CHANNEL_IDS
 ```
 
-`DISCORD_ALLOWED_GUILD_IDS` accepts a comma-separated list. Slash commands are registered only in those guilds and are accepted only when the caller's Discord user ID exactly matches `DISCORD_OWNER_USER_ID`. The Worker exposes no send-message endpoint. Mobile monitoring APIs require the hashed bearer token of a LINE-paired owner device. Structured D1 logs redact secret-like metadata keys, important alerts use a five-minute deduplication cooldown, detailed logs are retained for 30 days, and active alerts are preserved. The Worker checks Discord every minute and delivers pending owner alerts through Expo Push without exposing the Discord token to the app.
+`DISCORD_ALLOWED_GUILD_IDS` accepts a comma-separated list. Slash commands are registered only in those guilds and are accepted only when the caller's Discord user ID exactly matches `DISCORD_OWNER_USER_ID`. The only send-message endpoint belongs to the private Discord Studio flow described below; the mobile app remains monitoring-only. Mobile monitoring APIs require the hashed bearer token of a LINE-paired owner device. Structured D1 logs redact secret-like metadata keys, important alerts use a five-minute deduplication cooldown, detailed logs are retained for 30 days, and active alerts are preserved. The Worker checks Discord every minute and delivers pending owner alerts through Expo Push without exposing the Discord token to the app or website.
+
+Discord Studio is available after deployment at:
+
+```text
+https://calendar-notification.<account>.workers.dev/discord
+```
+
+It supports plain message content plus one embed with title, description, HTTPS link, accent color, HTTPS image, thumbnail, and footer. Bot credentials never reach the browser. Delivery is owner-only, same-origin protected, limited to five sends per minute, idempotent against duplicate clicks, constrained by both allowlists, and uses `allowed_mentions.parse: []` to prevent accidental mass mentions. The bot needs **View Channel**, **Send Messages**, and **Embed Links** in each configured channel.
 
 Set this URL under **Discord Developer Portal > General Information > Interactions Endpoint URL**:
 
@@ -98,6 +108,11 @@ POST /api/discord/alerts/:id/acknowledge
 POST /api/discord/push/register
 POST /api/discord/commands/register
 POST /api/discord/interactions
+GET  /api/discord/web/session
+POST /api/discord/web/pairing/start
+GET  /api/discord/web/channels
+POST /api/discord/web/announcements
+POST /api/discord/web/logout
 ```
 
 Use the deployed webhook URL in LINE Developers:
