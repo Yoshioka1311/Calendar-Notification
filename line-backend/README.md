@@ -29,7 +29,7 @@ Doctor appointment Friday at 3 PM
 
 All parsed date-times are stored with the Bangkok offset (`+07:00`). Thai and English named dates, relative dates, weekdays, common Thai spoken times, `HH:mm`, `HH.mm`, and English AM/PM are supported. If only the date or time is detected, the bot asks only for the missing field. Bare numbers such as `ทำข้อ 15 ถึงข้อ 20` are not interpreted as dates or times.
 
-Event titles are categorized with weighted Thai/English phrase scoring as `Personal`, `Work`, `School`, `Study`, `Assignment`, `Exam`, `Meeting`, `Health`, `Travel`, `Exercise`, `Important`, or `Other`. Low-confidence ties fall back to `Other`. The detected category is shown in LINE, can be corrected before saving, and is sent to the app for color coding.
+Event titles are categorized with weighted Thai/English phrase scoring as `Personal`, `Work`, `School`, `Study`, `Assignment`, `Exam`, `Meeting`, `Appointment`, `Birthday`, `Social`, `Health`, `Travel`, `Exercise`, `Important`, or `Other`. Low-confidence ties fall back to `Other`. The detected category is shown in LINE, can be corrected before saving, and is sent to the app for color coding.
 
 ## Cloudflare Git deployment
 
@@ -88,7 +88,9 @@ Discord Studio is available after deployment at:
 https://calendar-notification.<account>.workers.dev/discord
 ```
 
-It supports plain message content plus one embed with title, description, HTTPS link, accent color, HTTPS image, thumbnail, and footer. Bot credentials never reach the browser. Delivery is approved-email-only, same-origin protected, limited to five sends per minute per approved email, idempotent against duplicate clicks, constrained by both Discord allowlists, and uses `allowed_mentions.parse: []` to prevent accidental mass mentions. The bot needs **View Channel**, **Send Messages**, and **Embed Links** in each configured channel.
+It loads the real bot name, avatar, and connection state from the backend and supports plain message content, up to 10 ordered embeds, up to 25 fields per embed, author/footer details, synchronized accent colors, HTTPS media URLs, and up to four PNG, JPEG, WEBP, or GIF attachments. Each attachment is limited to 5 MB and the combined attachment limit is 20 MB. File type and signature are validated, client filenames are replaced, and accepted files are streamed directly in Discord's multipart request rather than retained in D1 or object storage.
+
+Bot credentials never reach the browser. Delivery is approved-email-only, same-origin protected, limited to five sends per minute per approved email, idempotent against duplicate clicks, constrained by both Discord allowlists, and uses `allowed_mentions.parse: []` to prevent accidental mass mentions. The bot needs **View Channel**, **Send Messages**, **Embed Links**, and **Attach Files** in each configured channel. Draft text is stored only in the browser's local storage; selected image files are not persisted and must be reselected after a reload.
 
 In Cloudflare Zero Trust, create a self-hosted Access application that protects both `/discord*` and `/api/discord/web/*` on the Worker hostname. Enable the One-time PIN identity provider and create an **Allow** policy containing only the exact email addresses that may use Discord Studio. Do not use a policy that permits every valid email. Leave `/api/line/webhook` outside this Access application because LINE must reach that webhook without an interactive login. Copy the Access application audience tag and team domain into the runtime variables above. The Worker independently verifies the Access JWT signature, issuer, audience, algorithm, and approved email before any Discord Studio API operation.
 
@@ -121,6 +123,8 @@ POST /api/discord/push/register
 POST /api/discord/commands/register
 POST /api/discord/interactions
 GET  /api/discord/web/session
+GET  /api/discord/web/bot
+GET  /api/discord/web/destinations
 GET  /api/discord/web/channels
 POST /api/discord/web/announcements
 ```

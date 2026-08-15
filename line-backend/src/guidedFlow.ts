@@ -18,7 +18,7 @@ const CREATE_COMMAND = /^(?:เพิ่มกิจกรรม|สร้าง
 const CANCEL_COMMAND = /^(?:ยกเลิก|cancel)$/iu;
 const CATEGORIES: EventCategory[] = [
   'Meeting', 'Study', 'Assignment', 'Exam', 'Work', 'Personal',
-  'Health', 'Travel', 'Exercise', 'Important', 'School', 'Other',
+  'Health', 'Appointment', 'Birthday', 'Travel', 'Exercise', 'Social', 'Important', 'School', 'Other',
 ];
 
 export type GuidedFlowResult = { handled: boolean; messages: LineReplyMessage[] };

@@ -1,6 +1,6 @@
 # Yoshioka Privacy Policy
 
-**Effective date:** August 14, 2026
+**Effective date:** August 15, 2026
 
 This Privacy Policy explains how Yoshioka processes information when you use its Calendar features, LINE integration, Discord bot monitoring and announcement features, mobile application, web interface, and Cloudflare-hosted backend (collectively, the "Service").
 
@@ -41,6 +41,7 @@ Calendar records created or imported by the mobile application are primarily sto
 - alert delivery and acknowledgement status for a paired owner device.
 - approved-email-authenticated Discord Studio announcement request, idempotency, channel, delivery, and rate-limit records;
 - announcement content and embed data sent to Discord, which Discord processes under its own policies.
+- image attachments selected for an announcement; validated attachments are transmitted directly to Discord and are not retained by Yoshioka in D1 or object storage.
 
 ### Security and diagnostic data
 
@@ -75,7 +76,7 @@ Information may be processed by or transmitted through the following providers o
 - **Cloudflare Access** for email-based authentication to the private Discord Studio;
 - **Expo Push Notification Service and EAS** for application builds and delivery of enabled mobile push notifications;
 - **LINE Messaging API** for receiving bot messages, replying to users, and delivering enabled LINE reminders;
-- **Discord API** for bot authentication, service-health checks, allowed-channel lookup, and explicitly authorized announcement delivery;
+- **Discord API** for bot authentication and identity display, service-health checks, allowed-server/channel lookup, and explicitly authorized announcement and attachment delivery;
 - **Apple, Google, and the device operating system** for application distribution and native notification delivery.
 
 Information may also be disclosed when reasonably necessary to comply with applicable law, enforce these policies, protect the Service or connected accounts, or investigate suspected abuse. Source code hosted on GitHub does not include production bot tokens or channel secrets.

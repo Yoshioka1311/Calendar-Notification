@@ -9,6 +9,9 @@ test('detects Thai event categories', () => {
   assert.equal(detectEventCategory('นัดหมอตรวจสุขภาพ'), 'Health');
   assert.equal(detectEventCategory('กำหนดส่งงานด่วน'), 'Important');
   assert.equal(detectEventCategory('เที่ยวกับครอบครัว'), 'Travel');
+  assert.equal(detectEventCategory('งานวันเกิดของเพื่อน'), 'Birthday');
+  assert.equal(detectEventCategory('นัดหมายช่างซ่อม'), 'Appointment');
+  assert.equal(detectEventCategory('ปาร์ตี้กับเพื่อน'), 'Social');
 });
 
 test('detects English event categories without matching partial words', () => {

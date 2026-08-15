@@ -20,7 +20,9 @@ import {
 } from './database';
 import { randomPairingCode, randomToken, sha256 } from './crypto';
 import { authenticateDiscordStudio } from './discordAccess';
-import { listAllowedDiscordChannels, parseAnnouncementInput, sendDiscordAnnouncement } from './discordAnnouncements';
+import { validateAnnouncementAttachments, type ValidatedAttachment } from './discordAttachments';
+import { getDiscordBotIdentity, listAllowedDiscordChannels, listAllowedDiscordGuilds, parseAnnouncementInput, sendDiscordAnnouncement } from './discordAnnouncements';
+import type { AnnouncementInput } from './discordAnnouncementValidation';
 import { handleDiscordInteraction, registerDiscordCommands } from './discordInteractions';
 import { serveDiscordWeb } from './discordWeb';
 import {
@@ -43,7 +45,8 @@ import { computeReminderTimes, lineReminderMessage } from './reminders';
 import type { AppDevice, Env, IncomingEventRecord, LineWebhookBody, LineWebhookEvent } from './types';
 
 const MAX_BODY_BYTES = 256 * 1024;
-const API_BODY_BYTES = 16 * 1024;
+const API_BODY_BYTES = 64 * 1024;
+const ANNOUNCEMENT_BODY_BYTES = 21 * 1024 * 1024;
 const PAIRING_LIFETIME_MS = 10 * 60 * 1000;
 
 function json(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
@@ -77,6 +80,27 @@ async function readJsonObject(request: Request): Promise<Record<string, unknown>
   } catch {
     return undefined;
   }
+}
+
+async function readAnnouncementRequest(request: Request): Promise<{ input: AnnouncementInput; attachments: ValidatedAttachment[] }> {
+  const contentType = request.headers.get('content-type')?.toLowerCase() ?? '';
+  if (contentType.includes('multipart/form-data')) {
+    const declaredLength = Number(request.headers.get('content-length') ?? 0);
+    if (Number.isFinite(declaredLength) && declaredLength > ANNOUNCEMENT_BODY_BYTES) throw new Error('BODY_TOO_LARGE');
+    const form = await request.formData();
+    const payloadText = form.get('payload_json');
+    if (typeof payloadText !== 'string' || payloadText.length > API_BODY_BYTES) throw new Error('INVALID_ANNOUNCEMENT');
+    let payload: unknown;
+    try { payload = JSON.parse(payloadText); } catch { throw new Error('INVALID_ANNOUNCEMENT'); }
+    const files = form.getAll('files').filter((value): value is File => value instanceof File);
+    const attachments = await validateAnnouncementAttachments(files);
+    const input = parseAnnouncementInput(payload, attachments.length);
+    if (!input) throw new Error('INVALID_ANNOUNCEMENT');
+    return { input, attachments };
+  }
+  const input = parseAnnouncementInput(await readJsonObject(request));
+  if (!input) throw new Error('INVALID_ANNOUNCEMENT');
+  return { input, attachments: [] };
 }
 
 function isWebhookBody(value: unknown): value is LineWebhookBody {
@@ -289,19 +313,31 @@ async function handleDiscordWebApi(request: Request, env: Env, url: URL): Promis
     return json({ authenticated: true, email: identity.email });
   }
   if (request.method === 'POST' && !sameOrigin(request)) return json({ error: 'Same-origin request required.' }, 403);
+  if (request.method === 'GET' && url.pathname === '/api/discord/web/bot') {
+    return json({ bot: await getDiscordBotIdentity(env) });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/discord/web/destinations') {
+    if (!env.DISCORD_BOT_TOKEN) return json({ error: 'Discord Bot Token is not configured in Cloudflare.' }, 503);
+    const [guilds, channels] = await Promise.all([listAllowedDiscordGuilds(env), listAllowedDiscordChannels(env)]);
+    return json({ guilds, channels });
+  }
   if (request.method === 'GET' && url.pathname === '/api/discord/web/channels') {
     if (!env.DISCORD_BOT_TOKEN) return json({ error: 'Discord Bot Token is not configured in Cloudflare.' }, 503);
     return json({ channels: await listAllowedDiscordChannels(env) });
   }
   if (request.method === 'POST' && url.pathname === '/api/discord/web/announcements') {
-    const body = await readJsonObject(request);
-    const input = parseAnnouncementInput(body);
     const idempotencyKey = request.headers.get('idempotency-key') ?? '';
-    if (!input) return json({ error: 'Add valid message or embed content and select an allowed channel.' }, 400);
     try {
-      return json({ ok: true, ...(await sendDiscordAnnouncement(env, identity, input, idempotencyKey)) });
+      const { input, attachments } = await readAnnouncementRequest(request);
+      return json({ ok: true, ...(await sendDiscordAnnouncement(env, identity, input, attachments, idempotencyKey)) });
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : 'ANNOUNCEMENT_FAILED';
+      if (code === 'BODY_TOO_LARGE' || code === 'ATTACHMENTS_TOO_LARGE') return json({ error: 'Images exceed the 20 MB total upload limit.' }, 413);
+      if (code === 'TOO_MANY_ATTACHMENTS') return json({ error: 'Maximum 4 images per announcement.' }, 400);
+      if (code === 'UNSUPPORTED_ATTACHMENT_TYPE') return json({ error: 'Only PNG, JPEG, WEBP, and GIF images are supported.' }, 415);
+      if (code === 'ATTACHMENT_TOO_LARGE') return json({ error: 'Each image must be 5 MB or smaller.' }, 413);
+      if (code === 'ATTACHMENT_SIGNATURE_INVALID') return json({ error: 'An image does not match its declared file type.' }, 400);
+      if (code === 'INVALID_ANNOUNCEMENT') return json({ error: 'Add valid content, embeds, or images and select an allowed channel.' }, 400);
       if (code.startsWith('RATE_LIMITED:')) return json({ error: `Please wait ${code.split(':')[1]} seconds before sending again.` }, 429);
       if (code === 'TARGET_NOT_ALLOWED') return json({ error: 'This Discord channel is not in the server/channel allowlist.' }, 403);
       if (code === 'DUPLICATE_REQUEST') return json({ error: 'This send request was already processed.' }, 409);
@@ -504,7 +540,7 @@ export default {
       return json({
         service: 'calendar-notification-line-api',
         status: 'ok',
-        version: '1.4.1',
+        version: '1.5.0',
         lineReminderScheduler: true,
         timeZone: env.APP_TIME_ZONE,
       });

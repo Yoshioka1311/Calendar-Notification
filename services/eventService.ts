@@ -45,7 +45,7 @@ function cleanDraft(draft: EventDraft): EventDraft {
   if (draft.endTime && !isValidTime(draft.endTime)) throw new Error('Please choose a valid end time.');
   if (draft.endTime && draft.endTime <= draft.startTime) throw new Error('End time must be later than the start time.');
   if (!EVENT_CATEGORIES.includes(draft.category)) throw new Error('Please choose a valid category.');
-  if (!Number.isInteger(draft.reminderMinutesBefore) || draft.reminderMinutesBefore < 0) {
+  if (!Number.isInteger(draft.reminderMinutesBefore) || draft.reminderMinutesBefore < 0 || draft.reminderMinutesBefore > 525_600) {
     throw new Error('Please choose a valid reminder.');
   }
   return {

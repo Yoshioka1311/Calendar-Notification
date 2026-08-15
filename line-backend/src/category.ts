@@ -10,7 +10,7 @@ type WeightedRule = {
 const RULES: WeightedRule[] = [
   {
     category: 'Important',
-    phrases: weighted(10, ['ด่วนมาก', 'สำคัญมาก', 'urgent', 'critical']).concat(weighted(7, ['ด่วน', 'สำคัญ', 'กำหนดส่ง', 'deadline', 'due'])),
+    phrases: weighted(20, ['ด่วนมาก', 'สำคัญมาก', 'urgent', 'critical', 'ด่วน']).concat(weighted(10, ['สำคัญ', 'กำหนดส่ง', 'deadline', 'due'])),
   },
   {
     category: 'Exam',
@@ -22,11 +22,19 @@ const RULES: WeightedRule[] = [
   },
   {
     category: 'Meeting',
-    phrases: weighted(5, ['นัดประชุม', 'ประชุมโปรเจกต์', 'project meeting']).concat(weighted(4, ['ประชุม', 'มีทติ้ง', 'คุยงาน', 'meeting', 'conference']).concat(weighted(2, ['present', 'presentation', 'meet', 'zoom', 'teams call']))),
+    phrases: weighted(8, ['นัดประชุม', 'ประชุมโปรเจกต์', 'project meeting']).concat(weighted(6, ['ประชุม', 'มีทติ้ง', 'คุยงาน', 'team sync', 'conference']).concat(weighted(4, ['meeting', 'standup', 'briefing', 'zoom call', 'teams call']).concat(weighted(2, ['presentation', 'สัมมนา'])))),
   },
   {
     category: 'Health',
-    phrases: weighted(5, ['ตรวจสุขภาพ', 'ไปหาหมอ', 'doctor appointment']).concat(weighted(3, ['โรงพยาบาล', 'คลินิก', 'ทันตแพทย์', 'หมอ', 'ยา', 'doctor', 'dentist', 'hospital', 'clinic', 'medical'])),
+    phrases: weighted(9, ['ตรวจสุขภาพ', 'ไปหาหมอ', 'นัดหมอ', 'doctor appointment']).concat(weighted(6, ['โรงพยาบาล', 'คลินิก', 'ทันตแพทย์', 'หาหมอ', 'hospital', 'dentist']).concat(weighted(4, ['หมอ', 'ยา', 'doctor', 'clinic', 'medical', 'วัคซีน', 'vaccine']))),
+  },
+  {
+    category: 'Appointment',
+    phrases: weighted(7, ['นัดหมาย', 'นัดพบ', 'appointment']).concat(weighted(4, ['reservation', 'booking', 'จองคิว'])),
+  },
+  {
+    category: 'Birthday',
+    phrases: weighted(9, ['วันเกิด', 'birthday']).concat(weighted(6, ['งานวันเกิด', 'birthday party']).concat(weighted(4, ['anniversary', 'ครบรอบ']))),
   },
   {
     category: 'Exercise',
@@ -34,7 +42,7 @@ const RULES: WeightedRule[] = [
   },
   {
     category: 'Travel',
-    phrases: weighted(4, ['ขึ้นเครื่อง', 'เดินทางไป', 'สนามบิน']).concat(weighted(3, ['เครื่องบิน', 'เที่ยวบิน', 'เดินทาง', 'flight', 'airport', 'travel', 'trip', 'เที่ยว']).concat(weighted(2, ['บิน']))),
+    phrases: weighted(6, ['ขึ้นเครื่อง', 'เดินทางไป', 'สนามบิน', 'เที่ยว']).concat(weighted(4, ['เครื่องบิน', 'เที่ยวบิน', 'เดินทาง', 'flight', 'airport', 'travel', 'trip']).concat(weighted(2, ['บิน']))),
   },
   {
     category: 'Study',
@@ -50,7 +58,11 @@ const RULES: WeightedRule[] = [
   },
   {
     category: 'Personal',
-    phrases: weighted(4, ['วันเกิด', 'birthday', 'anniversary']).concat(weighted(2, ['ส่วนตัว', 'ครอบครัว', 'ซื้อของ', 'personal', 'family', 'shopping'])),
+    phrases: weighted(6, ['ธุระส่วนตัว', 'นัดครอบครัว']).concat(weighted(4, ['ส่วนตัว', 'ครอบครัว', 'ซื้อของ', 'personal', 'family', 'shopping']).concat(weighted(3, ['จ่ายบิล', 'bill payment']))),
+  },
+  {
+    category: 'Social',
+    phrases: weighted(7, ['งานเลี้ยง', 'ปาร์ตี้', 'party']).concat(weighted(5, ['กินข้าวกับเพื่อน', 'เจอเพื่อน', 'hangout']).concat(weighted(3, ['เพื่อน', 'friends', 'dinner']))),
   },
 ];
 
@@ -76,7 +88,7 @@ export function scoreEventCategories(text: string): CategoryScore[] {
 
 export function detectEventCategory(text: string): EventCategory {
   const [best, second] = scoreEventCategories(text);
-  if (!best || best.score < 2) return 'Other';
+  if (!best || best.score < 3) return 'Other';
   if (second && second.score === best.score) return 'Other';
   return best.category;
 }

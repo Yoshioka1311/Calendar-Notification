@@ -1,6 +1,6 @@
 # Yoshioka Terms of Service
 
-**Effective date:** August 14, 2026
+**Effective date:** August 15, 2026
 
 These Terms of Service ("Terms") govern access to and use of Yoshioka, including its Calendar features, LINE integration, Discord bot monitoring and announcement features, mobile application, web interface, and Cloudflare-hosted backend (collectively, the "Service"). By installing, connecting, or using the Service, you agree to these Terms.
 
@@ -17,6 +17,8 @@ You must be legally permitted to use the Service and must comply with the applic
 ## 3. Authorized Use
 
 You may use Yoshioka only with accounts, devices, Discord servers, guilds, channels, LINE accounts, and data that you own or are authorized to access.
+
+You are responsible for ensuring that announcement text, embeds, links, and uploaded images are lawful and that you have permission to publish them to the selected Discord channel.
 
 You must not:
 

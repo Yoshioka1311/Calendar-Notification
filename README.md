@@ -2,6 +2,8 @@
 
 Personal Expo app with two primary modules: Calendar and Discord Bot Monitoring. Calendar keeps native Android/iOS event reminders and LINE event sync. Discord shows owner-only health, structured activity logs, alerts, acknowledgements, and native alert deep links backed by Cloudflare Workers and D1.
 
+The event composer has a compact quick-action row for Date, Time, Category, and Reminder. Dates and times use native pickers on Android/iOS, while Thai and English text can still fill them automatically. Category detection uses weighted contextual keywords and can be overridden manually. Reminder presets range from the event time through one week, with custom minute, hour, day, and week values.
+
 ## Run locally
 
 PowerShell may block `npm.ps1`, so use the Windows command wrappers:
@@ -48,5 +50,7 @@ The backend setup and LINE webhook instructions are in [line-backend/README.md](
 ## Discord monitoring
 
 The Discord tab intentionally contains observability only: Overview, Logs, and Alerts. It does not contain an announcement editor or a Discord bot token. Pair this device with the existing LINE owner flow before monitoring APIs become readable.
+
+The separate private web composer at `/discord` supports the actual bot identity, allowlisted server/channel selection, up to 10 embeds, fields, color and image previews, and up to four validated image attachments. Its backend is authenticated with Cloudflare Access email allowlisting; LINE pairing is not used for the web composer.
 
 Android uses separate `Event Reminders` and `Discord Bot Alerts` notification channels. Foreground alerts can use the native scheduler; background alerts are sent through Expo Push after the paired device securely registers its Expo push token. A physical-device test and valid Android push credentials are still required before treating background delivery as verified.

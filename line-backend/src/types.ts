@@ -102,7 +102,7 @@ export interface AcceptedEvent {
   parserConfidence?: number;
 }
 
-export type EventCategory = 'Personal' | 'Work' | 'School' | 'Study' | 'Assignment' | 'Exam' | 'Meeting' | 'Health' | 'Travel' | 'Exercise' | 'Important' | 'Other';
+export type EventCategory = 'Personal' | 'Work' | 'School' | 'Study' | 'Assignment' | 'Exam' | 'Meeting' | 'Health' | 'Appointment' | 'Birthday' | 'Travel' | 'Exercise' | 'Social' | 'Important' | 'Other';
 
 export interface ParsedIncomingEvent {
   title: string;
