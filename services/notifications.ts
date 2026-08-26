@@ -1,13 +1,11 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
 
 import type { CalendarEvent } from '@/types/event';
-import type { DiscordAlert } from '@/types/discordMonitoring';
 import { combineLocalDateTime, formatShortDate } from '@/utils/date';
+import { calculateReminderDate } from '@/utils/reminder';
 
 export const EVENT_REMINDER_CHANNEL_ID = 'event-reminders';
-export const DISCORD_ALERT_CHANNEL_ID = 'discord-alerts';
 
 export type NotificationResult =
   | { status: 'scheduled'; notificationId: string; scheduledFor: Date }
@@ -54,16 +52,14 @@ export async function prepareNotifications(): Promise<void> {
     showBadge: true,
     sound: 'default',
   });
-  await Notifications.setNotificationChannelAsync(DISCORD_ALERT_CHANNEL_ID, {
-    name: 'Discord Bot Alerts',
-    description: 'Warnings, errors, critical incidents, and recoveries from Yoshioka Discord monitoring',
-    importance: Notifications.AndroidImportance.HIGH,
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-    vibrationPattern: [0, 300, 120, 300],
-    lightColor: '#5865F2',
-    showBadge: true,
-    sound: 'default',
-  });
+}
+
+function localIso(value: Date): string {
+  const offsetMinutes = -value.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const hours = String(Math.floor(Math.abs(offsetMinutes) / 60)).padStart(2, '0');
+  const minutes = String(Math.abs(offsetMinutes) % 60).padStart(2, '0');
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}:${String(value.getSeconds()).padStart(2, '0')}${sign}${hours}:${minutes}`;
 }
 
 function permissionIsGranted(permission: Notifications.NotificationPermissionsStatus): boolean {
@@ -125,9 +121,15 @@ export async function scheduleEventNotification(event: CalendarEvent): Promise<N
   const eventDate = combineLocalDateTime(event.startDate, event.startTime);
   if (!eventDate) throw new Error('The event date or time is invalid.');
 
-  const scheduledFor = new Date(eventDate.getTime() - event.reminderMinutesBefore * 60_000);
+  const scheduledFor = calculateReminderDate(event.startDate, event.startTime, event.reminderMinutesBefore);
+  if (!scheduledFor) throw new Error('The reminder date is invalid.');
   if (scheduledFor.getTime() <= Date.now()) {
-    debugLog('not scheduled because reminder time is in the past', { eventId: event.id, scheduledFor: scheduledFor.toISOString() });
+    debugLog('not scheduled because reminder time is in the past', {
+      event: event.title,
+      eventAt: localIso(eventDate),
+      reminderMinutesBefore: event.reminderMinutesBefore,
+      scheduledFor: localIso(scheduledFor),
+    });
     return { status: 'past' };
   }
 
@@ -150,7 +152,13 @@ export async function scheduleEventNotification(event: CalendarEvent): Promise<N
       },
     });
 
-    debugLog('scheduled event reminder', { eventId: event.id, scheduledFor: scheduledFor.toISOString(), notificationId });
+    debugLog('scheduled event reminder', {
+      event: event.title,
+      eventAt: localIso(eventDate),
+      reminderMinutesBefore: event.reminderMinutesBefore,
+      scheduledFor: localIso(scheduledFor),
+      notificationId,
+    });
     return { status: 'scheduled', notificationId, scheduledFor };
   } catch (caught) {
     debugError('failed to schedule event reminder', caught, { eventId: event.id, scheduledFor: scheduledFor.toISOString() });
@@ -199,35 +207,6 @@ export async function scheduleTestNotification(seconds: number): Promise<string>
       channelId: Platform.OS === 'android' ? EVENT_REMINDER_CHANNEL_ID : undefined,
     },
   });
-  debugLog('scheduled test notification', { seconds, notificationId });
+  debugLog('scheduled test notification', { seconds, scheduledFor: localIso(new Date(Date.now() + seconds * 1000)), notificationId });
   return notificationId;
-}
-
-export async function presentDiscordAlertNotification(alert: DiscordAlert): Promise<string> {
-  if (Platform.OS === 'web') throw new Error('Notifications are unavailable on web.');
-  await prepareNotifications();
-  const permission = await getNotificationPermissionStatus();
-  if (!permission.granted) throw new Error('Notification permission is not enabled.');
-  return Notifications.scheduleNotificationAsync({
-    content: {
-      title: alert.status === 'resolved' ? 'Yoshioka · Discord Recovered' : `Yoshioka · Discord ${alert.severity[0]!.toUpperCase()}${alert.severity.slice(1)}`,
-      body: `${alert.title}\n${alert.message}`,
-      data: { alertId: alert.id, route: `/discord/alert/${alert.id}`, notificationType: 'discord-alert' },
-      sound: 'default',
-    },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: 1,
-      repeats: false,
-      channelId: Platform.OS === 'android' ? DISCORD_ALERT_CHANNEL_ID : undefined,
-    },
-  });
-}
-
-export async function getYoshiokaPushToken(): Promise<string | undefined> {
-  if (Platform.OS === 'web') return undefined;
-  if (!(await getNotificationPermissionStatus()).granted) return undefined;
-  const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  if (typeof projectId !== 'string' || !projectId) throw new Error('EAS project ID is unavailable.');
-  return (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 }

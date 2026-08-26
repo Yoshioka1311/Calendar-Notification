@@ -70,6 +70,12 @@ test('does not treat unrelated numbers as dates or times', () => {
   assert.deepEqual(result.missing, ['date', 'time']);
 });
 
+test('keeps a short incomplete message as the event title for guided recovery', () => {
+  const result = parseEventMessagePartial('น', NOW);
+  assert.equal(result.title, 'น');
+  assert.deepEqual(result.missing, ['date', 'time']);
+});
+
 test('parses Thai next week and next month without inventing a time', () => {
   const week = parseEventMessagePartial('สัปดาห์หน้าส่งรายงาน', NOW);
   const month = parseEventMessagePartial('เดือนหน้าไปหาหมอ', NOW);

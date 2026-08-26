@@ -15,6 +15,17 @@ export function computeReminderTimes(startDateTime: string, reminderMinutesBefor
   };
 }
 
+export function isReminderTimeInFuture(
+  localDate: string | undefined,
+  startTime: string | undefined,
+  minutesBefore: number,
+  now = new Date(),
+): boolean {
+  if (!localDate || !startTime) return false;
+  const reminderAt = new Date(`${localDate}T${startTime}:00+07:00`).getTime() - minutesBefore * 60_000;
+  return Number.isFinite(reminderAt) && reminderAt > now.getTime();
+}
+
 export function lineReminderMessage(title: string, startDateTime: string, reminderMinutesBefore: number): string {
   const time = startDateTime.slice(11, 16);
   const date = startDateTime.slice(0, 10).split('-').reverse().join('/');

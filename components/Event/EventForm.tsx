@@ -36,6 +36,7 @@ import type { IncomingEventPayload } from '@/types/incomingEvent';
 import { fromDateKey, isValidTime, toDateKey, toTimeKey } from '@/utils/date';
 import { detectEventCategory } from '@/utils/eventCategory';
 import { detectSmartEventDetails } from '@/utils/eventSmartInput';
+import { calculateReminderDate } from '@/utils/reminder';
 
 type PickerMode = 'date' | 'time' | 'endTime' | null;
 type SheetMode = 'category' | 'reminder' | null;
@@ -130,6 +131,14 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
 
   const submit = async () => {
     setError(undefined);
+    if (phoneReminderEnabled) {
+      const reminderDate = calculateReminderDate(date, time, reminder);
+      if (reminderDate && reminderDate.getTime() <= Date.now()) {
+        setError('Reminder time has already passed. Choose At event time or another future reminder.');
+        setSheetMode('reminder');
+        return;
+      }
+    }
     setSaving(true);
     const draft: EventDraft = {
       title,
@@ -236,7 +245,8 @@ export function EventForm({ event, incomingEvent, initialDate, onSaved }: EventF
       </SelectionSheet>
 
       <SelectionSheet visible={sheetMode === 'reminder'} title="Reminder" onClose={() => setSheetMode(null)}>
-        {REMINDER_OPTIONS.map((option) => <SelectRow key={option.minutes} label={option.label} selected={!customMode && reminder === option.minutes} onPress={() => { setCustomMode(false); setReminder(option.minutes); setSheetMode(null); }} />)}
+        {error ? <Text accessibilityLiveRegion="polite" style={[styles.sheetError, { color: theme.colors.danger, backgroundColor: `${theme.colors.danger}12` }]}>{error}</Text> : null}
+        {REMINDER_OPTIONS.map((option) => <SelectRow key={option.minutes} label={option.label} selected={!customMode && reminder === option.minutes} onPress={() => { setCustomMode(false); setReminder(option.minutes); setError(undefined); setSheetMode(null); }} />)}
         <SelectRow label="Custom" selected={customMode} onPress={() => setCustomMode(true)} />
         {customMode ? (
           <View style={[styles.customPanel, { borderColor: theme.colors.border }]}>
@@ -349,4 +359,5 @@ const styles = StyleSheet.create({
   sheetHeader: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: 18 }, sheetTitle: { fontSize: 16, fontWeight: '800' }, sheetAction: { fontSize: 14, fontWeight: '700', paddingVertical: 12 }, sheetSide: { minWidth: 52, alignItems: 'flex-end' }, sheetScroll: { paddingHorizontal: 18, paddingBottom: 8 },
   selectRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth }, radio: { width: 21, height: 21, borderWidth: 2, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginRight: 12 }, radioInner: { width: 11, height: 11, borderRadius: 6 }, categoryDot: { width: 9, height: 9, borderRadius: 5, marginRight: 9 }, selectCopy: { flex: 1, minWidth: 0 }, selectLabel: { fontSize: 14, fontWeight: '600' }, selectDescription: { fontSize: 11, marginTop: 2 },
   customPanel: { borderWidth: 1, borderRadius: 16, padding: 14, marginTop: 12, marginBottom: 8 }, customInput: { marginBottom: 2 }, unitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 16 }, unitChip: { minHeight: 40, borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+  sheetError: { fontSize: 12, lineHeight: 18, borderRadius: 11, padding: 11, marginTop: 10 },
 });

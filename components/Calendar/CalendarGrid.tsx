@@ -5,6 +5,7 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { CATEGORY_COLORS, EVENT_CATEGORIES, type CalendarEvent } from '@/types/event';
 import { radius } from '@/theme';
 import { addMonths, formatMonthYear, getCalendarDays, isSameMonth, toDateKey } from '@/utils/date';
+import { eventRuntimeStatus, PASSED_EVENT_COLOR } from '@/utils/eventStatus';
 
 type CalendarGridProps = {
   month: Date;
@@ -13,9 +14,10 @@ type CalendarGridProps = {
   onSelectDate: (dateKey: string) => void;
   onMonthChange: (month: Date) => void;
   compact?: boolean;
+  now?: Date;
 };
 
-export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMonthChange, compact = false }: CalendarGridProps) {
+export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMonthChange, compact = false, now = new Date() }: CalendarGridProps) {
   const { theme, settings } = useSettings();
   const { width } = useWindowDimensions();
   const showEventLabels = !compact && width >= 390;
@@ -112,7 +114,7 @@ export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMont
             const selected = selectedDate === dateKey;
             const today = todayKey === dateKey;
             const currentMonth = isSameMonth(day, month);
-            const dots = [...new Set(dayEvents.map((event) => CATEGORY_COLORS[event.category]))].slice(0, 3);
+            const dots = [...new Set(dayEvents.map((event) => eventRuntimeStatus(event, now) === 'passed' ? PASSED_EVENT_COLOR : CATEGORY_COLORS[event.category]))].slice(0, 3);
             return (
               <Pressable
                 key={dateKey}
@@ -144,10 +146,11 @@ export function CalendarGrid({ month, selectedDate, events, onSelectDate, onMont
                 ) : (
                   <View style={styles.eventLabels}>
                     {dayEvents.slice(0, 2).map((event) => {
-                      const color = CATEGORY_COLORS[event.category];
+                      const passed = eventRuntimeStatus(event, now) === 'passed';
+                      const color = passed ? PASSED_EVENT_COLOR : CATEGORY_COLORS[event.category];
                       return (
                         <View key={event.id} style={[styles.eventLabel, { backgroundColor: `${color}22`, borderLeftColor: color }]}>
-                          <Text numberOfLines={1} style={[styles.eventLabelText, { color: theme.colors.text }]}>{event.title}</Text>
+                          <Text numberOfLines={1} style={[styles.eventLabelText, { color: theme.colors.text }]}>{passed ? '✓ ' : ''}{event.title}</Text>
                         </View>
                       );
                     })}

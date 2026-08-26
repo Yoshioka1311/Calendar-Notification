@@ -16,11 +16,6 @@ const PROMPT_SEEN_KEY = '@calendar-noti/notification-explanation-v1';
 const EVENT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function openNotificationEvent(response: Notifications.NotificationResponse): void {
-  const alertId = response.notification.request.content.data?.alertId;
-  if (typeof alertId === 'string' && EVENT_ID_PATTERN.test(alertId)) {
-    router.push(`/discord/alert/${alertId}` as never);
-    return;
-  }
   const eventId = response.notification.request.content.data?.eventId;
   if (typeof eventId !== 'string' || !EVENT_ID_PATTERN.test(eventId)) return;
   router.push({ pathname: '/event/[id]', params: { id: eventId } });
@@ -77,7 +72,7 @@ export function NotificationBootstrap() {
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
           <Text style={[styles.title, { color: theme.colors.text }]}>Never miss an event</Text>
-          <Text style={[styles.body, { color: theme.colors.textMuted }]}>Yoshioka can remind you before calendar events and show important Discord monitoring alerts. You can change this permission later in Settings.</Text>
+          <Text style={[styles.body, { color: theme.colors.textMuted }]}>Yoshioka can remind you before calendar events. You can change this permission later in Settings.</Text>
           <Button onPress={() => void allow()}>Allow notifications</Button>
           <Button variant="ghost" onPress={() => void close()} style={styles.later}>Not now</Button>
         </View>

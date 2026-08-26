@@ -15,7 +15,6 @@ import {
   scheduleTestNotification,
 } from '@/services/notifications';
 import { lineIntegrationService } from '@/services/lineIntegrationService';
-import { discordMonitoringService } from '@/services/discordMonitoringService';
 import { REMINDER_OPTIONS, reminderLabel } from '@/types/event';
 import type { LineConnectionStatus, LinePairingSession } from '@/types/lineIntegration';
 import type { AppLanguage, ThemeMode, WeekStart } from '@/types/settings';
@@ -29,8 +28,7 @@ export default function SettingsScreen() {
   const [pairing, setPairing] = useState<LinePairingSession>();
   const [lineBusy, setLineBusy] = useState(false);
   const [notificationTestBusy, setNotificationTestBusy] = useState(false);
-  const [discordCommandBusy, setDiscordCommandBusy] = useState(false);
-  const notificationTestToolsEnabled = __DEV__ || process.env.EXPO_PUBLIC_ENABLE_NOTIFICATION_TESTS === 'true';
+  const notificationTestToolsEnabled = __DEV__;
 
   const refreshPermission = async () => {
     if (Platform.OS === 'web') return;
@@ -132,18 +130,6 @@ export default function SettingsScreen() {
     }
   };
 
-  const registerDiscordCommands = async () => {
-    setDiscordCommandBusy(true);
-    try {
-      const result = await discordMonitoringService.registerDiscordCommands();
-      showToast('Discord commands registered', `${result.commands || 3} command(s) are ready in ${result.guilds} server(s)`);
-    } catch (caught) {
-      showToast('Discord setup is incomplete', caught instanceof Error ? caught.message : 'Please check the Cloudflare runtime variables.');
-    } finally {
-      setDiscordCommandBusy(false);
-    }
-  };
-
   return (
     <Screen title="Settings" subtitle="Make Yoshioka yours">
       <SettingsSection title="NOTIFICATIONS">
@@ -167,39 +153,16 @@ export default function SettingsScreen() {
             />
           ))}
         </View>
-        {notificationTestToolsEnabled && Platform.OS !== 'web' ? (
-          <View style={styles.simulator}>
-            <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>Internal test build · These use the real operating-system notification scheduler.</Text>
-            <Button variant="secondary" loading={notificationTestBusy} onPress={() => void runNotificationTest(10)} style={styles.inlineButton}>Test in 10 seconds</Button>
-            <Button variant="secondary" loading={notificationTestBusy} onPress={() => void runNotificationTest(60)} style={styles.inlineButton}>Test in 1 minute</Button>
-            <Button variant="ghost" onPress={() => void inspectScheduledNotifications()} style={styles.inlineButton}>View scheduled notifications</Button>
-          </View>
-        ) : null}
       </SettingsSection>
 
-      <SettingsSection title="DISCORD ALERTS">
-        <BooleanSetting
-          label="Warnings"
-          description="Phone alerts for notable recoverable problems"
-          value={settings.discordWarningNotifications}
-          onChange={(discordWarningNotifications) => void updateSettings({ discordWarningNotifications })}
-        />
-        <BooleanSetting
-          label="Errors"
-          description="Phone alerts when Discord actions require attention"
-          value={settings.discordErrorNotifications}
-          onChange={(discordErrorNotifications) => void updateSettings({ discordErrorNotifications })}
-        />
-        <SettingRow label="Critical" description="Important security and availability incidents" value="Always on" valueColor={theme.colors.danger} />
-        <BooleanSetting
-          label="Recovery notifications"
-          description="Tell me when a failed service becomes healthy again"
-          value={settings.discordRecoveryNotifications}
-          onChange={(discordRecoveryNotifications) => void updateSettings({ discordRecoveryNotifications })}
-        />
-        <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>These settings affect phone notifications only. Backend security and monitoring logs always remain enabled.</Text>
-        <Button variant="secondary" loading={discordCommandBusy} onPress={() => void registerDiscordCommands()} style={styles.inlineButton}>Register Discord slash commands</Button>
-      </SettingsSection>
+      {notificationTestToolsEnabled && Platform.OS !== 'web' ? (
+        <SettingsSection title="DEVELOPER TOOLS">
+          <Text style={[styles.simulatorNote, { color: theme.colors.textMuted }]}>Development builds only · These use the real operating-system notification scheduler.</Text>
+          <Button variant="secondary" loading={notificationTestBusy} onPress={() => void runNotificationTest(10)} style={styles.inlineButton}>Test Notification in 10 Seconds</Button>
+          <Button variant="secondary" loading={notificationTestBusy} onPress={() => void runNotificationTest(60)} style={styles.inlineButton}>Test Notification in 1 Minute</Button>
+          <Button variant="ghost" onPress={() => void inspectScheduledNotifications()} style={styles.inlineButton}>View Scheduled Notifications</Button>
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection title="CALENDAR">
         <SettingRow label="Week starts on" value={settings.weekStartsOn === 'sunday' ? 'Sunday' : 'Monday'} />
@@ -256,7 +219,7 @@ export default function SettingsScreen() {
         ) : null}
       </SettingsSection>
 
-      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Yoshioka · Version 1.3.1</Text>
+      <Text style={[styles.version, { color: theme.colors.textMuted }]}>Yoshioka · Version 1.4.0</Text>
     </Screen>
   );
 }
@@ -300,25 +263,6 @@ function OptionChip({ label, selected, onPress }: { label: string; selected: boo
         { backgroundColor: selected ? theme.colors.primarySoft : theme.colors.surfaceElevated, borderColor: selected ? theme.colors.primary : theme.colors.border },
       ]}>
       <Text style={[styles.optionText, { color: selected ? theme.colors.primary : theme.colors.text }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function BooleanSetting({ label, description, value, onChange }: { label: string; description: string; value: boolean; onChange: (value: boolean) => void }) {
-  const { theme } = useSettings();
-  return (
-    <Pressable
-      accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
-      onPress={() => onChange(!value)}
-      style={styles.row}>
-      <View style={styles.rowCopy}>
-        <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
-        <Text style={[styles.rowDescription, { color: theme.colors.textMuted }]}>{description}</Text>
-      </View>
-      <View style={[styles.toggle, { backgroundColor: value ? theme.colors.primary : theme.colors.border }]}>
-        <View style={[styles.toggleKnob, { transform: [{ translateX: value ? 18 : 0 }] }]} />
-      </View>
     </Pressable>
   );
 }
@@ -367,6 +311,4 @@ const styles = StyleSheet.create({
   simulator: { marginTop: 14 },
   simulatorNote: { fontSize: 10, lineHeight: 15, marginBottom: 8 },
   version: { textAlign: 'center', fontSize: 11, marginTop: 2, marginBottom: 14 },
-  toggle: { width: 44, height: 26, borderRadius: 999, padding: 3, justifyContent: 'center' },
-  toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF' },
 });

@@ -7,9 +7,6 @@ export interface AppSettings {
   weekStartsOn: WeekStart;
   language: AppLanguage;
   defaultReminderMinutes: number;
-  discordWarningNotifications: boolean;
-  discordErrorNotifications: boolean;
-  discordRecoveryNotifications: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -17,7 +14,4 @@ export const DEFAULT_SETTINGS: AppSettings = {
   weekStartsOn: 'sunday',
   language: 'auto',
   defaultReminderMinutes: 1440,
-  discordWarningNotifications: true,
-  discordErrorNotifications: true,
-  discordRecoveryNotifications: true,
 };

@@ -10,7 +10,7 @@ import {
 } from './database';
 import type { LineReplyMessage } from './line';
 import { parseEventMessagePartial } from './parser';
-import { computeReminderTimes } from './reminders';
+import { computeReminderTimes, isReminderTimeInFuture } from './reminders';
 import type { Env, EventCategory, IncomingEventRecord, LineEventSession, LineWebhookEvent } from './types';
 
 const SESSION_LIFETIME_MS = 30 * 60_000;
@@ -61,7 +61,7 @@ function reminderLabel(minutes: number): string {
 export function createEventEntryMessage(): LineReplyMessage {
   return {
     type: 'text',
-    text: 'สร้างกิจกรรมใหม่ได้ด้วยปุ่มด้านล่าง หรือพิมพ์วัน เวลา และรายละเอียดมาได้เลย',
+    text: 'พิมพ์สิ่งที่ต้องการทำได้เลย ระบบจะถามวัน เวลา ประเภท และการแจ้งเตือนทีละขั้นตอน',
     quickReply: {
       items: [{
         type: 'action',
@@ -295,6 +295,12 @@ export async function handleGuidedPostback(event: LineWebhookEvent, env: Env): P
   if (action === 'guided_reminder') {
     const minutes = Number(values.get('minutes'));
     if (![0, 10, 30, 60, 180, 1440, 2880].includes(minutes)) return { handled: true, messages: [reminderPrompt()] };
+    if (!isReminderTimeInFuture(session.localDate, session.startTime, minutes)) {
+      return {
+        handled: true,
+        messages: [textMessage('เวลาแจ้งเตือนที่เลือกผ่านไปแล้ว กรุณาเลือกตอนถึงเวลา หรือตัวเลือกอื่นที่ยังไม่ถึงเวลา'), reminderPrompt()],
+      };
+    }
     const updated = { ...session, reminderMinutesBefore: minutes, state: 'confirming' as const };
     await saveSession(env, updated);
     return { handled: true, messages: [confirmationPrompt(updated)] };
@@ -351,7 +357,6 @@ export async function handleGuidedText(
   }
 
   const parsed = parseEventMessagePartial(input);
-  if (!parsed.localDate && !parsed.startTime) return { handled: false, messages: [] };
   const session: LineEventSession = {
     lineUserId,
     state: 'selecting_date',

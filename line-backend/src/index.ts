@@ -14,7 +14,6 @@ import {
   listDueLineReminders,
   markEventDelivered,
   markWebhookProcessed,
-  saveIncomingEvent,
   upsertPairingSession,
   upsertLineReminder,
 } from './database';
@@ -40,9 +39,8 @@ import {
 } from './discordMonitoring';
 import { createEventEntryMessage, handleGuidedPostback, handleGuidedText } from './guidedFlow';
 import { pushToLine, replyToLine, verifyLineSignature, type LineReplyMessage } from './line';
-import { parseEventMessage } from './parser';
 import { computeReminderTimes, lineReminderMessage } from './reminders';
-import type { AppDevice, Env, IncomingEventRecord, LineWebhookBody, LineWebhookEvent } from './types';
+import type { AppDevice, Env, LineWebhookBody, LineWebhookEvent } from './types';
 
 const MAX_BODY_BYTES = 256 * 1024;
 const API_BODY_BYTES = 64 * 1024;
@@ -111,36 +109,6 @@ function isWebhookBody(value: unknown): value is LineWebhookBody {
 
 function textMessage(text: string): LineReplyMessage {
   return { type: 'text', text };
-}
-
-function failureMessage(): string {
-  return [
-    'ไม่สามารถอ่านกิจกรรมได้',
-    'กรุณาใช้รูปแบบ:',
-    '15/08/2026 14:00 ชื่อกิจกรรม',
-    'หรือ 15 สิงหาคม 2569 เวลา 14:00 ชื่อกิจกรรม',
-  ].join('\n');
-}
-
-function confirmationMessage(event: ReturnType<typeof parseEventMessage>, eventId: string): LineReplyMessage {
-  const date = event.localDate.split('-').reverse().join('/');
-  const time = event.endTime ? `${event.startTime}-${event.endTime}` : event.startTime;
-  return {
-    type: 'text',
-    text: ['ตรวจพบกิจกรรม', `ชื่อ: ${event.title}`, `ประเภท: ${event.category}`, `วันที่: ${date}`, `เวลา: ${time}`, '', 'ยืนยันเพิ่มลง Calendar App หรือไม่?'].join('\n'),
-    quickReply: {
-      items: [
-        {
-          type: 'action',
-          action: { type: 'postback', label: 'ยืนยัน', data: `action=confirm&eventId=${eventId}`, displayText: 'ยืนยันกิจกรรม' },
-        },
-        {
-          type: 'action',
-          action: { type: 'postback', label: 'ไม่เพิ่ม', data: `action=ignore&eventId=${eventId}`, displayText: 'ไม่เพิ่มกิจกรรม' },
-        },
-      ],
-    },
-  };
 }
 
 async function replyIfPossible(event: LineWebhookEvent, messages: LineReplyMessage[], env: Env): Promise<void> {
@@ -228,7 +196,7 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
     const lineUserId = event.source?.userId;
     const messageId = event.message.id;
     if (!lineUserId || !messageId || !originalText || originalText.length > 5000) {
-      await replyIfPossible(event, [textMessage(failureMessage())], env);
+      await replyIfPossible(event, [textMessage('กรุณาส่งข้อความสั้น ๆ ว่าต้องการทำอะไร แล้วระบบจะช่วยเลือกวันและเวลาให้'), createEventEntryMessage()], env);
       return;
     }
     if (await handlePairingCommand(event, lineUserId, originalText, env)) return;
@@ -238,26 +206,7 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
       await replyIfPossible(event, guided.messages, env);
       return;
     }
-
-    try {
-      const parsed = parseEventMessage(originalText);
-      const record: IncomingEventRecord = {
-        ...parsed,
-        id: crypto.randomUUID(),
-        webhookEventId: event.webhookEventId,
-        externalEventId: `line:${event.webhookEventId}`,
-        lineUserId,
-        messageId,
-        originalText,
-        notes: 'Created from LINE message',
-      };
-      const created = await saveIncomingEvent(env.DB, record);
-      await replyIfPossible(event, [created
-        ? confirmationMessage(parsed, record.id)
-        : textMessage('กิจกรรมนี้ถูกส่งเข้าระบบแล้ว จึงไม่สร้างรายการซ้ำ')], env);
-    } catch {
-      await replyIfPossible(event, [textMessage(failureMessage()), createEventEntryMessage()], env);
-    }
+    await replyIfPossible(event, [createEventEntryMessage()], env);
   } finally {
     await markWebhookProcessed(env.DB, event.webhookEventId, event.type || 'unknown');
   }
