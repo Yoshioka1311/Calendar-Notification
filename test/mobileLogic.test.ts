@@ -5,7 +5,18 @@ import { detectEventCategory } from '../utils/eventCategory.ts';
 import { detectSmartEventDetails } from '../utils/eventSmartInput.ts';
 import { calculateReminderDate } from '../utils/reminder.ts';
 import { eventRuntimeStatus, passedEvents, upcomingEvents } from '../utils/eventStatus.ts';
+import { aggregateYearlyProgress, dailyBalanceScore, nutritionDimensions } from '../utils/nutrition.ts';
+import { buildFinanceSummary, buildSixMonthFinanceAnalytics, financeRetentionCutoffIso, FINANCE_CATEGORIES } from '../utils/finance.ts';
+import {
+  TEST_VAULT_KDF_PARAMS,
+  decryptVaultJson,
+  deriveVaultPinKey,
+  encryptVaultJson,
+  isSixDigitPin,
+  vaultPayloadHash,
+} from '../utils/vaultCrypto.ts';
 import type { CalendarEvent } from '../types/event.ts';
+import type { FinanceTransaction } from '../types/finance.ts';
 
 const TODAY = new Date(2026, 7, 15, 12);
 
@@ -55,4 +66,97 @@ test('changes event status exactly at the event start and sorts each status view
   assert.equal(eventRuntimeStatus(items[1]!, now), 'passed');
   assert.deepEqual(upcomingEvents(items, now).map(({ id }) => id), ['later']);
   assert.deepEqual(passedEvents(items, now).map(({ id }) => id), ['boundary', 'earlier']);
+});
+
+test('scores nutrition balance from transparent target rules', () => {
+  const summary = { date: '2026-08-26', calories: 1900, proteinG: 100, carbohydrateG: 220, fatG: 60, fiberG: 24, mealCount: 3 };
+  const profile = {
+    sex: 'male' as const,
+    activityLevel: 'moderate' as const,
+    goal: 'maintain' as const,
+    estimatedDailyCalories: 2000,
+    targetProteinG: 110,
+    targetCarbohydrateG: 240,
+    targetFatG: 65,
+  };
+  assert.equal(dailyBalanceScore(summary, profile) >= 80, true);
+  assert.equal(nutritionDimensions(summary, profile).find((item) => item.key === 'energy')?.status, 'Balanced');
+});
+
+test('aggregates yearly nutrition progress by month averages', () => {
+  const points = aggregateYearlyProgress([
+    { date: '2026-01-01', calories: 1800, proteinG: 80, carbohydrateG: 200, fatG: 60, fiberG: 20, mealCount: 2 },
+    { date: '2026-01-02', calories: 2200, proteinG: 100, carbohydrateG: 260, fatG: 70, fiberG: 25, mealCount: 3 },
+    { date: '2026-02-01', calories: 1500, proteinG: 70, carbohydrateG: 180, fatG: 45, fiberG: 18, mealCount: 2 },
+  ]);
+  assert.deepEqual(points.map((point) => [point.date, point.calories, point.mealCount]), [
+    ['2026-01-01', 2000, 3],
+    ['2026-02-01', 1500, 2],
+  ]);
+});
+
+function financeTransaction(
+  id: string,
+  type: FinanceTransaction['type'],
+  amount: number,
+  localDate: string,
+  categoryId = type === 'income' ? 'income-transfer' : 'expense-food',
+): FinanceTransaction {
+  const transactionAt = `${localDate}T12:00:00.000Z`;
+  return {
+    id,
+    type,
+    amount,
+    currency: 'THB',
+    categoryId,
+    transactionAt,
+    localDate,
+    source: 'manual',
+    createdAt: transactionAt,
+    updatedAt: transactionAt,
+  };
+}
+
+test('summarizes finance daily weekly monthly totals and top category', () => {
+  const summary = buildFinanceSummary([
+    financeTransaction('income', 'income', 1000, '2026-08-27'),
+    financeTransaction('food', 'expense', 120, '2026-08-27', 'expense-food'),
+    financeTransaction('transport', 'expense', 47, '2026-08-26', 'expense-transport'),
+  ], FINANCE_CATEGORIES, '2026-08-27');
+  assert.deepEqual(summary.today, { income: 1000, expense: 120, net: 880 });
+  assert.deepEqual(summary.week, { income: 1000, expense: 167, net: 833 });
+  assert.equal(summary.topExpenseCategory?.categoryId, 'expense-food');
+});
+
+test('builds six-month finance analytics without adding a seventh month', () => {
+  const analytics = buildSixMonthFinanceAnalytics([
+    financeTransaction('mar', 'expense', 300, '2026-03-15'),
+    financeTransaction('apr', 'income', 1000, '2026-04-01'),
+    financeTransaction('aug', 'expense', 800, '2026-08-27', 'expense-shopping'),
+  ], FINANCE_CATEGORIES, '2026-08-27');
+  assert.deepEqual(analytics.months.map((month) => month.month), ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08']);
+  assert.equal(analytics.highestSpendingMonth, 'Aug');
+});
+
+test('finance retention cutoff is based on transaction date window', () => {
+  assert.equal(financeRetentionCutoffIso(new Date('2026-08-27T00:00:00.000Z')).startsWith('2026-02-27'), true);
+});
+
+test('vault PIN derives a wrapping key but encrypted entries use a separate master key', async () => {
+  const saltHex = '000102030405060708090a0b0c0d0e0f';
+  const nonceHex = '101112131415161718191a1b1c1d1e1f2021222324252627';
+  const pinKeyHex = await deriveVaultPinKey('123456', saltHex, TEST_VAULT_KDF_PARAMS);
+  const vaultMasterKeyHex = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  assert.notEqual(pinKeyHex, vaultMasterKeyHex);
+  const ciphertext = encryptVaultJson(vaultMasterKeyHex, { password: 'never-upload-plaintext' }, nonceHex, 'vault-test-entry');
+  assert.equal(ciphertext.includes('never-upload-plaintext'), false);
+  assert.deepEqual(decryptVaultJson(vaultMasterKeyHex, ciphertext, nonceHex, 'vault-test-entry'), { password: 'never-upload-plaintext' });
+  assert.equal(vaultPayloadHash(ciphertext).length, 64);
+});
+
+test('vault rejects non six digit PIN formats', () => {
+  assert.equal(isSixDigitPin('123456'), true);
+  assert.equal(isSixDigitPin('12345'), false);
+  assert.equal(isSixDigitPin('abcdef'), false);
+  assert.equal(isSixDigitPin('1234567'), false);
 });

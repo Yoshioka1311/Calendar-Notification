@@ -153,6 +153,26 @@ export async function allowDiscordAnnouncement(db: D1Database, subjectHash: stri
   return 0;
 }
 
+export async function allowGameSearchAttempt(db: D1Database, subjectHash: string, nowMs: number): Promise<number> {
+  const windowMs = 60_000;
+  const maxAttempts = 30;
+  const row = await db.prepare(`
+    SELECT window_started_at, attempts FROM game_search_rate_limits WHERE subject_hash = ? LIMIT 1
+  `).bind(subjectHash).first<{ window_started_at: number; attempts: number }>();
+  if (!row || nowMs - row.window_started_at >= windowMs) {
+    await db.prepare(`
+      INSERT INTO game_search_rate_limits(subject_hash, window_started_at, attempts)
+      VALUES (?, ?, 1) ON CONFLICT(subject_hash) DO UPDATE SET
+        window_started_at = excluded.window_started_at, attempts = 1
+    `).bind(subjectHash, nowMs).run();
+    return 0;
+  }
+  if (row.attempts >= maxAttempts) return Math.max(1, Math.ceil((windowMs - (nowMs - row.window_started_at)) / 1000));
+  await db.prepare('UPDATE game_search_rate_limits SET attempts = attempts + 1 WHERE subject_hash = ?')
+    .bind(subjectHash).run();
+  return 0;
+}
+
 export async function claimDiscordAnnouncement(
   db: D1Database,
   idempotencyKey: string,

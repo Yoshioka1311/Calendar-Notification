@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { Button } from '@/components/UI/Button';
@@ -7,6 +7,7 @@ import { Card } from '@/components/UI/Card';
 import { Screen } from '@/components/UI/Screen';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useEvents } from '@/contexts/EventContext';
+import { useNutrition } from '@/contexts/NutritionContext';
 import { useToast } from '@/contexts/ToastContext';
 import {
   getNotificationPermission,
@@ -17,17 +18,22 @@ import {
 import { lineIntegrationService } from '@/services/lineIntegrationService';
 import { REMINDER_OPTIONS, reminderLabel } from '@/types/event';
 import type { LineConnectionStatus, LinePairingSession } from '@/types/lineIntegration';
+import type { ActivityLevel, NutritionGoal, NutritionProfile, Sex } from '@/types/nutrition';
 import type { AppLanguage, ThemeMode, WeekStart } from '@/types/settings';
 
 export default function SettingsScreen() {
   const { settings, theme, updateSettings } = useSettings();
   const { simulateIncomingLineEvent, syncLineEvents } = useEvents();
+  const { profile: nutritionProfile, updateProfile: updateNutritionProfile } = useNutrition();
   const { showToast } = useToast();
   const [permission, setPermission] = useState(false);
   const [lineStatus, setLineStatus] = useState<LineConnectionStatus>('not-started');
   const [pairing, setPairing] = useState<LinePairingSession>();
   const [lineBusy, setLineBusy] = useState(false);
   const [notificationTestBusy, setNotificationTestBusy] = useState(false);
+  const [nutritionDraft, setNutritionDraft] = useState<NutritionProfile>();
+  const [nutritionBusy, setNutritionBusy] = useState(false);
+  const activeNutritionDraft = nutritionDraft ?? nutritionProfile;
   const notificationTestToolsEnabled = __DEV__;
 
   const refreshPermission = async () => {
@@ -86,6 +92,19 @@ export default function SettingsScreen() {
     await refreshPermission();
     if (granted) showToast('Notifications enabled', 'Event reminders can now reach you');
     else await Linking.openSettings();
+  };
+
+  const saveNutritionSettings = async () => {
+    setNutritionBusy(true);
+    try {
+      const saved = await updateNutritionProfile(activeNutritionDraft);
+      setNutritionDraft(undefined);
+      showToast('Nutrition profile saved', saved.estimatedDailyCalories ? `Estimated target: ${saved.estimatedDailyCalories} kcal` : 'Add height, weight, and age to calculate target');
+    } catch (caught) {
+      showToast('Unable to save nutrition profile', caught instanceof Error ? caught.message : 'Please connect LINE and try again.');
+    } finally {
+      setNutritionBusy(false);
+    }
   };
 
   const runNotificationTest = async (seconds: number) => {
@@ -173,6 +192,43 @@ export default function SettingsScreen() {
         />
       </SettingsSection>
 
+      <SettingsSection title="NUTRITION PROFILE">
+        <SettingRow
+          label="Estimated daily target"
+          description="Calculated from profile, activity, and goal"
+          value={nutritionProfile.estimatedDailyCalories ? `${nutritionProfile.estimatedDailyCalories} kcal` : 'Not ready'}
+          valueColor={nutritionProfile.estimatedDailyCalories ? theme.colors.success : theme.colors.warning}
+        />
+        <NumberField label="Height" suffix="cm" value={activeNutritionDraft.heightCm} onChange={(heightCm) => setNutritionDraft((current) => ({ ...(current ?? nutritionProfile), heightCm }))} />
+        <NumberField label="Weight" suffix="kg" value={activeNutritionDraft.weightKg} onChange={(weightKg) => setNutritionDraft((current) => ({ ...(current ?? nutritionProfile), weightKg }))} />
+        <NumberField label="Age" suffix="years" value={activeNutritionDraft.ageYears} onChange={(ageYears) => setNutritionDraft((current) => ({ ...(current ?? nutritionProfile), ageYears }))} />
+        <Text style={[styles.rowLabel, styles.fieldLabel, { color: theme.colors.text }]}>Sex</Text>
+        <SegmentedControl<Sex>
+          value={activeNutritionDraft.sex}
+          options={[{ value: 'unspecified', label: 'Unset' }, { value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }]}
+          onChange={(sex) => setNutritionDraft((current) => ({ ...(current ?? nutritionProfile), sex }))}
+        />
+        <Text style={[styles.rowLabel, styles.fieldLabel, { color: theme.colors.text }]}>Activity</Text>
+        <SegmentedControl<ActivityLevel>
+          value={activeNutritionDraft.activityLevel}
+          options={[
+            { value: 'sedentary', label: 'Low' },
+            { value: 'light', label: 'Light' },
+            { value: 'moderate', label: 'Mid' },
+            { value: 'active', label: 'High' },
+            { value: 'very_active', label: 'Max' },
+          ]}
+          onChange={(activityLevel) => setNutritionDraft((current) => ({ ...(current ?? nutritionProfile), activityLevel }))}
+        />
+        <Text style={[styles.rowLabel, styles.fieldLabel, { color: theme.colors.text }]}>Goal</Text>
+        <SegmentedControl<NutritionGoal>
+          value={activeNutritionDraft.goal}
+          options={[{ value: 'maintain', label: 'Maintain' }, { value: 'lose', label: 'Lose' }, { value: 'gain', label: 'Gain' }]}
+          onChange={(goal) => setNutritionDraft((current) => ({ ...(current ?? nutritionProfile), goal }))}
+        />
+        <Button onPress={() => void saveNutritionSettings()} loading={nutritionBusy} style={styles.profileSaveButton}>Save nutrition profile</Button>
+      </SettingsSection>
+
       <SettingsSection title="APPEARANCE">
         <SettingRow label="Theme" value={settings.themeMode[0].toUpperCase() + settings.themeMode.slice(1)} />
         <SegmentedControl<ThemeMode>
@@ -251,6 +307,29 @@ function SettingRow({ label, description, value, valueColor }: { label: string; 
   );
 }
 
+function NumberField({ label, suffix, value, onChange }: { label: string; suffix: string; value?: number; onChange: (value?: number) => void }) {
+  const { theme } = useSettings();
+  return (
+    <View style={styles.numberField}>
+      <Text style={[styles.rowLabel, { color: theme.colors.text }]}>{label}</Text>
+      <View style={[styles.inputWrap, { backgroundColor: theme.colors.surfaceElevated, borderColor: theme.colors.border }]}>
+        <TextInput
+          keyboardType="numeric"
+          value={value ? String(value) : ''}
+          onChangeText={(text) => {
+            const number = Number(text.replace(/[^\d.]/g, ''));
+            onChange(Number.isFinite(number) && number > 0 ? number : undefined);
+          }}
+          placeholder="0"
+          placeholderTextColor={theme.colors.textMuted}
+          style={[styles.input, { color: theme.colors.text }]}
+        />
+        <Text style={[styles.inputSuffix, { color: theme.colors.textMuted }]}>{suffix}</Text>
+      </View>
+    </View>
+  );
+}
+
 function OptionChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
   const { theme } = useSettings();
   return (
@@ -310,5 +389,11 @@ const styles = StyleSheet.create({
   pairingExpiry: { fontSize: 10, marginTop: 7 },
   simulator: { marginTop: 14 },
   simulatorNote: { fontSize: 10, lineHeight: 15, marginBottom: 8 },
+  numberField: { marginTop: 10 },
+  fieldLabel: { marginTop: 13, marginBottom: 7 },
+  inputWrap: { minHeight: 44, borderRadius: 13, borderWidth: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, marginTop: 7 },
+  input: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '700', paddingVertical: 8 },
+  inputSuffix: { fontSize: 12, fontWeight: '700' },
+  profileSaveButton: { marginTop: 14 },
   version: { textAlign: 'center', fontSize: 11, marginTop: 2, marginBottom: 14 },
 });

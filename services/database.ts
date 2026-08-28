@@ -25,7 +25,7 @@ type EventRow = {
 
 let databasePromise: ReturnType<typeof SQLite.openDatabaseAsync> | undefined;
 
-function getDatabase() {
+export function getDatabase() {
   databasePromise ??= SQLite.openDatabaseAsync('calendar-noti.db');
   return databasePromise;
 }
@@ -79,6 +79,69 @@ export async function initializeDatabase(): Promise<void> {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_date, start_time);
+
+    CREATE TABLE IF NOT EXISTS nutrition_profile_cache (
+      singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+      height_cm REAL,
+      weight_kg REAL,
+      age_years INTEGER,
+      sex TEXT NOT NULL DEFAULT 'unspecified',
+      activity_level TEXT NOT NULL DEFAULT 'moderate',
+      goal TEXT NOT NULL DEFAULT 'maintain',
+      estimated_daily_calories INTEGER,
+      target_protein_g INTEGER,
+      target_carbohydrate_g INTEGER,
+      target_fat_g INTEGER,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS nutrition_meals (
+      id TEXT PRIMARY KEY NOT NULL,
+      consumed_at TEXT NOT NULL,
+      local_date TEXT NOT NULL,
+      meal_type TEXT NOT NULL DEFAULT 'unknown',
+      source TEXT NOT NULL,
+      image_id TEXT,
+      total_calories REAL NOT NULL DEFAULT 0,
+      total_calories_min REAL,
+      total_calories_max REAL,
+      total_protein_g REAL NOT NULL DEFAULT 0,
+      total_carbohydrate_g REAL NOT NULL DEFAULT 0,
+      total_fat_g REAL NOT NULL DEFAULT 0,
+      total_fiber_g REAL,
+      confidence REAL NOT NULL DEFAULT 0,
+      manually_verified INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT,
+      updated_at TEXT,
+      confirmed_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_nutrition_meals_date ON nutrition_meals(local_date, consumed_at);
+
+    CREATE TABLE IF NOT EXISTS nutrition_meal_items (
+      id TEXT PRIMARY KEY NOT NULL,
+      meal_id TEXT NOT NULL,
+      food_reference_id TEXT,
+      detected_name TEXT NOT NULL,
+      estimated_grams REAL,
+      min_estimated_grams REAL,
+      max_estimated_grams REAL,
+      calories REAL NOT NULL DEFAULT 0,
+      protein_g REAL NOT NULL DEFAULT 0,
+      carbohydrate_g REAL NOT NULL DEFAULT 0,
+      fat_g REAL NOT NULL DEFAULT 0,
+      fiber_g REAL,
+      sodium_mg REAL,
+      identification_confidence REAL NOT NULL DEFAULT 0,
+      portion_confidence REAL NOT NULL DEFAULT 0,
+      match_confidence REAL NOT NULL DEFAULT 0,
+      manually_verified INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL,
+      notes TEXT,
+      FOREIGN KEY(meal_id) REFERENCES nutrition_meals(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_nutrition_meal_items_meal ON nutrition_meal_items(meal_id);
   `);
   const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(events)');
   if (!columns.some((column) => column.name === 'external_event_id')) {

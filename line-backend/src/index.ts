@@ -1,5 +1,6 @@
 import {
   authenticateDevice,
+  allowGameSearchAttempt,
   allowPairingAttempt,
   completePairing,
   claimLineReminder,
@@ -39,8 +40,27 @@ import {
 } from './discordMonitoring';
 import { createEventEntryMessage, handleGuidedPostback, handleGuidedText } from './guidedFlow';
 import { pushToLine, replyToLine, verifyLineSignature, type LineReplyMessage } from './line';
+import { financeRetentionCutoffIso, getFinanceSummary, getSixMonthFinanceAnalytics } from './finance/analytics';
+import { deleteFinanceTransaction, getFinanceTransaction, listFinanceCategories, listFinanceTransactions, purgeOldFinanceRecords } from './finance/repositories';
+import { createFinanceTransaction, patchFinanceTransaction, scanSlipText } from './finance/transactionService';
+import { searchGameCatalog } from './games/gameSearchService';
+import { calculateEstimatedDailyTarget } from './nutrition/energyRequirementService';
+import { scoreFoodReference } from './nutrition/foodMatchingService';
+import { handleNutritionImage, handleNutritionPostback, handleNutritionText } from './nutrition/nutritionLineFlow';
+import {
+  getDailyNutritionSummary,
+  getFoodReference,
+  getNutritionProfile,
+  listConfirmedMealsForDate,
+  listFoodReferences,
+  listNutritionProgress,
+  upsertNutritionProfile,
+} from './nutrition/repositories';
+import type { ActivityLevel, NutritionGoal, Sex } from './nutrition/types';
 import { computeReminderTimes, lineReminderMessage } from './reminders';
 import type { AppDevice, Env, LineWebhookBody, LineWebhookEvent } from './types';
+import { deleteVaultEntry, getVaultEntry, listVaultEntries, toPublicVaultEntry, upsertVaultEntry } from './vault/repositories';
+import { validateVaultEntryBody } from './vault/validation';
 
 const MAX_BODY_BYTES = 256 * 1024;
 const API_BODY_BYTES = 64 * 1024;
@@ -52,7 +72,7 @@ function json(data: unknown, status = 200, extraHeaders: Record<string, string> 
     status,
     headers: {
       'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       'Access-Control-Allow-Origin': '*',
       'Cache-Control': 'no-store',
       'Content-Type': 'application/json; charset=utf-8',
@@ -174,12 +194,17 @@ async function handlePostback(event: LineWebhookEvent, env: Env): Promise<void> 
     : 'ยืนยันแล้ว แต่ยังไม่ได้เชื่อม Calendar App กรุณาเปิด Settings ในแอป สร้างรหัส แล้วส่ง LINK ตามด้วยรหัสในแชทนี้')], env);
 }
 
-async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
+async function processEvent(event: LineWebhookEvent, env: Env, context: ExecutionContext): Promise<void> {
   if (!event.webhookEventId || event.webhookEventId.length > 200) return;
   if (await isWebhookProcessed(env.DB, event.webhookEventId)) return;
 
   try {
     if (event.type === 'postback') {
+      const nutrition = await handleNutritionPostback(event, env);
+      if (nutrition.handled) {
+        await replyIfPossible(event, nutrition.messages, env);
+        return;
+      }
       await handlePostback(event, env);
       return;
     }
@@ -187,8 +212,17 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
       await replyIfPossible(event, [createEventEntryMessage()], env);
       return;
     }
-    if (event.type !== 'message' || event.message?.type !== 'text') {
-      await replyIfPossible(event, [textMessage('รองรับข้อความตัวอักษรสำหรับสร้างกิจกรรม'), createEventEntryMessage()], env);
+    if (event.type !== 'message') return;
+    if (event.message?.type === 'image') {
+      const nutrition = await handleNutritionImage(event, env);
+      if (nutrition.handled) {
+        await replyIfPossible(event, nutrition.messages, env);
+        if (nutrition.background) context.waitUntil(nutrition.background);
+        return;
+      }
+    }
+    if (event.message?.type !== 'text') {
+      await replyIfPossible(event, [textMessage('รองรับข้อความสำหรับสร้างกิจกรรม หรือพิมพ์ คำนวณแคล ก่อนส่งรูปอาหาร'), createEventEntryMessage()], env);
       return;
     }
 
@@ -201,6 +235,12 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
     }
     if (await handlePairingCommand(event, lineUserId, originalText, env)) return;
 
+    const nutrition = await handleNutritionText(lineUserId, originalText, env);
+    if (nutrition.handled) {
+      await replyIfPossible(event, nutrition.messages, env);
+      return;
+    }
+
     const guided = await handleGuidedText(event, lineUserId, messageId, originalText, env);
     if (guided.handled) {
       await replyIfPossible(event, guided.messages, env);
@@ -212,7 +252,7 @@ async function processEvent(event: LineWebhookEvent, env: Env): Promise<void> {
   }
 }
 
-async function handleWebhook(request: Request, env: Env): Promise<Response> {
+async function handleWebhook(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
   if (!env.LINE_CHANNEL_SECRET) return json({ error: 'Service is not configured.' }, 503);
   if (!request.headers.get('content-type')?.toLowerCase().includes('application/json')) {
     return json({ error: 'Content-Type must be application/json.' }, 415);
@@ -234,7 +274,7 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     return json({ error: 'Invalid JSON.' }, 400);
   }
   if (!isWebhookBody(payload)) return json({ error: 'Invalid webhook payload.' }, 400);
-  await Promise.all(payload.events.map((event) => processEvent(event, env)));
+  await Promise.all(payload.events.map((event) => processEvent(event, env, context)));
   return json({ ok: true });
 }
 
@@ -246,6 +286,282 @@ async function authenticate(request: Request, env: Env): Promise<AppDevice | und
 function sameOrigin(request: Request): boolean {
   const origin = request.headers.get('origin');
   return Boolean(origin && origin === new URL(request.url).origin);
+}
+
+function isDateKey(value: string | null | undefined): value is string {
+  return Boolean(value && /^20\d{2}-\d{2}-\d{2}$/.test(value));
+}
+
+function bangkokDateKey(offsetDays = 0): string {
+  const date = new Date(Date.now() + (offsetDays * 86_400_000));
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function dateKeyFromOffset(dateKey: string, offsetDays: number): string {
+  const date = new Date(`${dateKey}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function readNumber(value: unknown, min: number, max: number): number | undefined {
+  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+  return Number.isFinite(number) && number >= min && number <= max ? number : undefined;
+}
+
+function readEnum<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === 'string' && allowed.includes(value as T) ? value as T : fallback;
+}
+
+function progressRange(range: string | null): { start: string; end: string } {
+  const end = bangkokDateKey();
+  if (range === 'year') return { start: dateKeyFromOffset(end, -364), end };
+  if (range === 'month') return { start: dateKeyFromOffset(end, -29), end };
+  return { start: dateKeyFromOffset(end, -6), end };
+}
+
+async function handleNutritionApi(request: Request, env: Env, url: URL, device: AppDevice): Promise<Response> {
+  if (!device.lineUserId) return json({ error: 'Connect LINE before using Nutrition sync.' }, 409);
+
+  if (request.method === 'GET' && url.pathname === '/api/nutrition/profile') {
+    return json({ profile: await getNutritionProfile(env.DB, device.lineUserId) });
+  }
+
+  if ((request.method === 'POST' || request.method === 'PUT') && url.pathname === '/api/nutrition/profile') {
+    const body = await readJsonObject(request);
+    const existing = await getNutritionProfile(env.DB, device.lineUserId);
+    const now = new Date().toISOString();
+    const profileInput = {
+      lineUserId: device.lineUserId,
+      heightCm: readNumber(body?.heightCm, 100, 230),
+      weightKg: readNumber(body?.weightKg, 30, 250),
+      ageYears: readNumber(body?.ageYears, 10, 100),
+      sex: readEnum<Sex>(body?.sex, ['male', 'female', 'unspecified'], existing?.sex ?? 'unspecified'),
+      activityLevel: readEnum<ActivityLevel>(body?.activityLevel, ['sedentary', 'light', 'moderate', 'active', 'very_active'], existing?.activityLevel ?? 'moderate'),
+      goal: readEnum<NutritionGoal>(body?.goal, ['maintain', 'lose', 'gain'], existing?.goal ?? 'maintain'),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    const profile = await upsertNutritionProfile(env.DB, {
+      ...profileInput,
+      ...calculateEstimatedDailyTarget(profileInput),
+    });
+    return json({ profile });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/nutrition/daily') {
+    const requestedDate = url.searchParams.get('date');
+    const date = isDateKey(requestedDate) ? requestedDate : bangkokDateKey();
+    const [summary, meals, profile] = await Promise.all([
+      getDailyNutritionSummary(env.DB, device.lineUserId, date),
+      listConfirmedMealsForDate(env.DB, device.lineUserId, date),
+      getNutritionProfile(env.DB, device.lineUserId),
+    ]);
+    return json({ summary, meals, profile });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/nutrition/progress') {
+    const range = progressRange(url.searchParams.get('range'));
+    return json({ points: await listNutritionProgress(env.DB, device.lineUserId, range.start, range.end), range });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/nutrition/foods/search') {
+    const query = (url.searchParams.get('q') ?? '').trim().slice(0, 100);
+    const foods = (await listFoodReferences(env.DB))
+      .map((food) => ({ food, score: scoreFoodReference(query, food) }))
+      .filter((item) => !query || item.score >= 0.45)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 20)
+      .map((item) => item.food);
+    return json({ foods });
+  }
+
+  const foodMatch = request.method === 'GET' ? /^\/api\/nutrition\/foods\/([^/]+)$/i.exec(url.pathname) : null;
+  if (foodMatch) {
+    const food = await getFoodReference(env.DB, decodeURIComponent(foodMatch[1]!));
+    return food ? json({ food }) : json({ error: 'Food not found.' }, 404);
+  }
+
+  return json({ error: 'Not found.' }, 404);
+}
+
+function readPagination(url: URL): { limit: number; offset: number } {
+  const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit') ?? 50) || 50));
+  const offset = Math.max(0, Number(url.searchParams.get('offset') ?? 0) || 0);
+  return { limit, offset };
+}
+
+async function handleFinanceApi(request: Request, env: Env, url: URL, device: AppDevice): Promise<Response> {
+  if (!device.lineUserId) return json({ error: 'Connect LINE before using Finance sync.' }, 409);
+  await purgeOldFinanceRecords(env.DB, device.lineUserId, financeRetentionCutoffIso(), env.FINANCE_RECEIPTS);
+
+  if (request.method === 'GET' && url.pathname === '/api/finance/categories') {
+    return json({ categories: await listFinanceCategories(env.DB, device.lineUserId) });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/finance/summary') {
+    return json({ summary: await getFinanceSummary(env.DB, device.lineUserId) });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/finance/transactions') {
+    const { limit, offset } = readPagination(url);
+    const startDate = isDateKey(url.searchParams.get('startDate')) ? url.searchParams.get('startDate')! : undefined;
+    const endDate = isDateKey(url.searchParams.get('endDate')) ? url.searchParams.get('endDate')! : undefined;
+    return json({ transactions: await listFinanceTransactions(env.DB, device.lineUserId, { startDate, endDate, limit, offset }), limit, offset });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/finance/transactions') {
+    const body = await readJsonObject(request);
+    if (!body) return json({ error: 'Invalid JSON body.' }, 400);
+    try {
+      const result = await createFinanceTransaction(env, device.lineUserId, body);
+      if (result.error) return json({ error: result.error }, 400);
+      if (result.duplicate) return json({ error: 'This slip may already be recorded.', duplicate: result.duplicate }, 409);
+      return json({ transaction: result.transaction }, 201);
+    } catch (caught) {
+      const code = caught instanceof Error ? caught.message : 'FINANCE_SAVE_FAILED';
+      if (code === 'INVALID_FINANCE_CATEGORY') return json({ error: 'Invalid category for this transaction type.' }, 400);
+      return json({ error: 'Unable to save transaction.' }, 500);
+    }
+  }
+
+  const transactionMatch = /^\/api\/finance\/transactions\/([0-9a-f-]{36})$/i.exec(url.pathname);
+  if (transactionMatch) {
+    const id = transactionMatch[1]!;
+    const existing = await getFinanceTransaction(env.DB, device.lineUserId, id);
+    if (!existing) return json({ error: 'Transaction not found.' }, 404);
+    if (request.method === 'GET') return json({ transaction: existing });
+    if (request.method === 'PATCH') {
+      const body = await readJsonObject(request);
+      if (!body) return json({ error: 'Invalid JSON body.' }, 400);
+      try {
+        const result = await patchFinanceTransaction(env, device.lineUserId, id, existing, body);
+        if (result.error || !result.transaction) return json({ error: result.error ?? 'Unable to update transaction.' }, 400);
+        return json({ transaction: result.transaction });
+      } catch (caught) {
+        const code = caught instanceof Error ? caught.message : 'FINANCE_UPDATE_FAILED';
+        if (code === 'INVALID_FINANCE_CATEGORY') return json({ error: 'Invalid category for this transaction type.' }, 400);
+        return json({ error: 'Unable to update transaction.' }, 500);
+      }
+    }
+    if (request.method === 'DELETE') {
+      return await deleteFinanceTransaction(env.DB, device.lineUserId, id)
+        ? json({ ok: true })
+        : json({ error: 'Transaction not found.' }, 404);
+    }
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/finance/scan-slip') {
+    const body = await readJsonObject(request);
+    if (!body) return json({ error: 'Invalid JSON body.' }, 400);
+    const result = await scanSlipText(env, device.lineUserId, body);
+    return 'error' in result ? json({ error: result.error }, 422) : json(result);
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/finance/analytics/daily') {
+    return json({ totals: (await getFinanceSummary(env.DB, device.lineUserId)).today });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/finance/analytics/weekly') {
+    return json({ totals: (await getFinanceSummary(env.DB, device.lineUserId)).week });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/finance/analytics/monthly') {
+    const summary = await getFinanceSummary(env.DB, device.lineUserId);
+    return json({ totals: summary.month, categoryBreakdown: summary.categoryBreakdown, topExpenseCategory: summary.topExpenseCategory });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/finance/analytics/six-months') {
+    return json({ analytics: await getSixMonthFinanceAnalytics(env.DB, device.lineUserId) });
+  }
+
+  return json({ error: 'Not found.' }, 404);
+}
+
+function vaultValidationError(error: unknown): Response {
+  const code = error instanceof Error ? error.message : 'INVALID_VAULT_ENTRY';
+  if (code.startsWith('PLAINTEXT_SECRET_FIELDS:')) {
+    return json({ error: 'Vault secrets must be encrypted on this device before sync. Plaintext secret fields were rejected.' }, 400);
+  }
+  if (code === 'INVALID_VAULT_ENTRY_ID') return json({ error: 'Invalid vault entry ID.' }, 400);
+  if (code === 'INVALID_VAULT_CIPHERTEXT') return json({ error: 'Invalid encrypted vault payload.' }, 400);
+  if (code === 'INVALID_VAULT_NONCE') return json({ error: 'Invalid vault nonce.' }, 400);
+  if (code === 'INVALID_VAULT_ENCRYPTION_VERSION') return json({ error: 'Unsupported vault encryption version.' }, 400);
+  if (code === 'INVALID_VAULT_PAYLOAD_HASH') return json({ error: 'Invalid vault payload hash.' }, 400);
+  if (code === 'INVALID_VAULT_COVER_URL') return json({ error: 'Invalid game cover URL.' }, 400);
+  if (code === 'INVALID_VAULT_GAME_NAME') return json({ error: 'Game name is required for game vault entries.' }, 400);
+  if (code === 'INVALID_VAULT_PLATFORM_NAME') return json({ error: 'Platform is required for vault entries.' }, 400);
+  if (code === 'INVALID_VAULT_LOGIN_PROVIDER') return json({ error: 'Login provider is required for game vault entries.' }, 400);
+  if (code === 'INVALID_VAULT_METADATA') return json({ error: 'Invalid vault metadata.' }, 400);
+  return json({ error: 'Invalid vault entry.' }, 400);
+}
+
+async function handleVaultApi(request: Request, env: Env, url: URL, device: AppDevice): Promise<Response> {
+  if (!device.lineUserId) return json({ error: 'Connect LINE before using Vault sync.' }, 409);
+
+  if (request.method === 'GET' && url.pathname === '/api/vault/entries') {
+    const entries = await listVaultEntries(env.DB, device.lineUserId);
+    return json({ entries: entries.map(toPublicVaultEntry) });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/vault/entries') {
+    try {
+      const input = validateVaultEntryBody(await readJsonObject(request));
+      const entry = await upsertVaultEntry(env.DB, device.lineUserId, input);
+      return json({ entry: toPublicVaultEntry(entry) }, 201);
+    } catch (caught) {
+      return vaultValidationError(caught);
+    }
+  }
+
+  const entryMatch = /^\/api\/vault\/entries\/([0-9a-f-]{36})$/i.exec(url.pathname);
+  if (entryMatch) {
+    const id = entryMatch[1]!;
+    if (request.method === 'GET') {
+      const entry = await getVaultEntry(env.DB, device.lineUserId, id);
+      return entry ? json({ entry: toPublicVaultEntry(entry) }) : json({ error: 'Vault entry not found.' }, 404);
+    }
+    if (request.method === 'PATCH' || request.method === 'PUT') {
+      try {
+        const input = validateVaultEntryBody(await readJsonObject(request), id);
+        const entry = await upsertVaultEntry(env.DB, device.lineUserId, input);
+        return json({ entry: toPublicVaultEntry(entry) });
+      } catch (caught) {
+        return vaultValidationError(caught);
+      }
+    }
+    if (request.method === 'DELETE') {
+      return await deleteVaultEntry(env.DB, device.lineUserId, id)
+        ? json({ ok: true })
+        : json({ error: 'Vault entry not found.' }, 404);
+    }
+  }
+
+  return json({ error: 'Not found.' }, 404);
+}
+
+async function handleGamesApi(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.method === 'GET' && url.pathname === '/api/games/search') {
+    const query = (url.searchParams.get('q') ?? '').trim();
+    if (query.length < 3) return json({ games: [] });
+    const clientAddress = request.headers.get('cf-connecting-ip')
+      ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      ?? 'local-development';
+    const retryAfter = await allowGameSearchAttempt(env.DB, await sha256(`game-search:${clientAddress}`), Date.now());
+    if (retryAfter) return json({ error: 'Game search is rate-limited. Please wait before trying again.' }, 429, { 'Retry-After': String(retryAfter) });
+    try {
+      return json({ games: await searchGameCatalog(env, query) });
+    } catch (caught) {
+      const code = caught instanceof Error ? caught.message : 'IGDB_SEARCH_FAILED';
+      if (code === 'IGDB_NOT_CONFIGURED') return json({ error: 'Game search is not configured yet. Add IGDB_CLIENT_ID and IGDB_CLIENT_SECRET in Cloudflare.' }, 503);
+      if (code === 'IGDB_TOKEN_FAILED' || code === 'IGDB_TOKEN_INVALID') return json({ error: 'Game provider token request failed.' }, 502);
+      return json({ error: 'Game search provider is temporarily unavailable.' }, 502);
+    }
+  }
+  return json({ error: 'Not found.' }, 404);
 }
 
 async function handleDiscordWebApi(request: Request, env: Env, url: URL): Promise<Response> {
@@ -328,6 +644,15 @@ async function handleAppApi(request: Request, env: Env, pathname: string): Promi
   if (!device) return json({ error: 'Unauthorized.' }, 401);
   if (request.method === 'GET' && pathname === '/api/devices/me') {
     return json({ connected: Boolean(device.lineUserId) });
+  }
+  if (pathname.startsWith('/api/nutrition/')) {
+    return handleNutritionApi(request, env, new URL(request.url), device);
+  }
+  if (pathname.startsWith('/api/finance/')) {
+    return handleFinanceApi(request, env, new URL(request.url), device);
+  }
+  if (pathname.startsWith('/api/vault/')) {
+    return handleVaultApi(request, env, new URL(request.url), device);
   }
   if (request.method === 'GET' && pathname === '/api/events/accepted') {
     return json({ events: device.lineUserId ? await listAcceptedEvents(env.DB, device.lineUserId) : [] });
@@ -482,7 +807,7 @@ async function runDiscordMonitoring(env: Env): Promise<void> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return json({ ok: true });
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
@@ -491,16 +816,34 @@ export default {
         status: 'ok',
         version: '1.5.0',
         lineReminderScheduler: true,
+        nutrition: true,
+        foodVisionProvider: 'free-local-vision',
+        foodVisionConfigured: true,
+        mealImageStorageConfigured: Boolean(env.MEAL_IMAGES),
+        finance: true,
+        financeReceiptStorageConfigured: Boolean(env.FINANCE_RECEIPTS),
+        vault: true,
+        vaultEncryption: 'client-side-xchacha20-poly1305',
+        gameSearchProvider: 'igdb',
+        igdbConfigured: Boolean(env.IGDB_CLIENT_ID && env.IGDB_CLIENT_SECRET),
         timeZone: env.APP_TIME_ZONE,
       });
     }
     const discordWeb = request.method === 'GET' ? serveDiscordWeb(url.pathname) : undefined;
     if (discordWeb) return discordWeb;
-    if (request.method === 'POST' && url.pathname === '/api/line/webhook') return handleWebhook(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/line/webhook') return handleWebhook(request, env, context);
     if (url.pathname === '/api/discord/interactions') return handleDiscordInteraction(request, env);
     if (url.pathname.startsWith('/api/discord/web/')) return handleDiscordWebApi(request, env, url);
     if (url.pathname.startsWith('/api/discord/')) return handleDiscordApi(request, env, url);
-    if (url.pathname.startsWith('/api/devices/') || url.pathname.startsWith('/api/events/') || url.pathname.startsWith('/api/reminders/')) {
+    if (url.pathname.startsWith('/api/games/')) return handleGamesApi(request, env, url);
+    if (
+      url.pathname.startsWith('/api/devices/')
+      || url.pathname.startsWith('/api/events/')
+      || url.pathname.startsWith('/api/reminders/')
+      || url.pathname.startsWith('/api/nutrition/')
+      || url.pathname.startsWith('/api/finance/')
+      || url.pathname.startsWith('/api/vault/')
+    ) {
       return handleAppApi(request, env, url.pathname);
     }
     return json({ error: 'Not found.' }, 404);

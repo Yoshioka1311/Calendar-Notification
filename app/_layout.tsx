@@ -3,9 +3,12 @@ import 'react-native-reanimated';
 import { StatusBar } from 'expo-status-bar';
 
 import { EventProvider } from '@/contexts/EventContext';
+import { FinanceProvider } from '@/contexts/FinanceContext';
+import { NutritionProvider } from '@/contexts/NutritionContext';
 import { NotificationBootstrap } from '@/components/Notifications/NotificationBootstrap';
 import { SettingsProvider, useSettings } from '@/contexts/SettingsContext';
 import { ToastProvider } from '@/contexts/ToastContext';
+import { VaultProvider } from '@/contexts/VaultContext';
 import { configureNotificationPresentation } from '@/services/notifications';
 
 export {
@@ -46,15 +49,21 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={navigationTheme}>
       <EventProvider>
-          <ToastProvider>
-            <StatusBar style={theme.dark ? 'light' : 'dark'} />
-            <NotificationBootstrap />
-            <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right', contentStyle: { backgroundColor: theme.colors.background } }}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="event/[id]" />
-              <Stack.Screen name="event/edit" />
-            </Stack>
-          </ToastProvider>
+        <NutritionProvider>
+          <FinanceProvider>
+            <VaultProvider>
+              <ToastProvider>
+                <StatusBar style={theme.dark ? 'light' : 'dark'} />
+                <NotificationBootstrap />
+                <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right', contentStyle: { backgroundColor: theme.colors.background } }}>
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="event/[id]" />
+                  <Stack.Screen name="event/edit" />
+                </Stack>
+              </ToastProvider>
+            </VaultProvider>
+          </FinanceProvider>
+        </NutritionProvider>
       </EventProvider>
     </ThemeProvider>
   );

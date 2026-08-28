@@ -3,6 +3,11 @@ export interface Env {
   LINE_CHANNEL_SECRET?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
   APP_TIME_ZONE: string;
+  USDA_API_KEY?: string;
+  MEAL_IMAGES?: R2Bucket;
+  FINANCE_RECEIPTS?: R2Bucket;
+  IGDB_CLIENT_ID?: string;
+  IGDB_CLIENT_SECRET?: string;
   DISCORD_BOT_TOKEN?: string;
   DISCORD_APPLICATION_ID?: string;
   DISCORD_APPLICATION_PUBLIC_KEY?: string;
@@ -76,6 +81,11 @@ export interface LineWebhookEvent {
     type?: string;
     id?: string;
     text?: string;
+    contentProvider?: {
+      type?: 'line' | 'external';
+      originalContentUrl?: string;
+      previewImageUrl?: string;
+    };
   };
   postback?: {
     data?: string;

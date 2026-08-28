@@ -61,6 +61,10 @@ export async function authenticatedBackendRequest<T>(path: string, init: Request
   return apiRequest<T>(path, init, token);
 }
 
+export async function backendRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return apiRequest<T>(path, init);
+}
+
 export async function startLinePairing(): Promise<LinePairingSession> {
   const response = await apiRequest<{ token: string; pairingCode: string; expiresAt: string }>(
     '/api/devices/pairing/start',

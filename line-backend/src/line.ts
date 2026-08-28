@@ -40,6 +40,15 @@ export type LineReplyMessage = {
   };
 };
 
+function normalizeMessages(message: string | LineReplyMessage | LineReplyMessage[]): LineReplyMessage[] {
+  if (typeof message === 'string') return [{ type: 'text', text: message }];
+  return Array.isArray(message) ? message : [message];
+}
+
+function truncateMessage(message: LineReplyMessage): LineReplyMessage {
+  return { ...message, text: message.text.slice(0, 5000) };
+}
+
 export async function replyToLine(replyToken: string, messages: LineReplyMessage[], channelAccessToken: string): Promise<boolean> {
   const response = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
@@ -49,13 +58,13 @@ export async function replyToLine(replyToken: string, messages: LineReplyMessage
     },
     body: JSON.stringify({
       replyToken,
-      messages: messages.slice(0, 5).map((message) => ({ ...message, text: message.text.slice(0, 5000) })),
+      messages: messages.slice(0, 5).map(truncateMessage),
     }),
   });
   return response.ok;
 }
 
-export async function pushToLine(lineUserId: string, message: string, channelAccessToken: string): Promise<boolean> {
+export async function pushToLine(lineUserId: string, message: string | LineReplyMessage | LineReplyMessage[], channelAccessToken: string): Promise<boolean> {
   const response = await fetch('https://api.line.me/v2/bot/message/push', {
     method: 'POST',
     headers: {
@@ -64,8 +73,26 @@ export async function pushToLine(lineUserId: string, message: string, channelAcc
     },
     body: JSON.stringify({
       to: lineUserId,
-      messages: [{ type: 'text', text: message.slice(0, 5000) }],
+      messages: normalizeMessages(message).slice(0, 5).map(truncateMessage),
     }),
   });
   return response.ok;
+}
+
+export async function downloadLineMessageContent(
+  messageId: string,
+  channelAccessToken: string,
+  maxBytes = 8 * 1024 * 1024,
+): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+  const response = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`, {
+    headers: { Authorization: `Bearer ${channelAccessToken}` },
+  });
+  if (!response.ok) throw new Error(`LINE_CONTENT_HTTP_${response.status}`);
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? 'application/octet-stream';
+  if (!contentType.startsWith('image/')) throw new Error('LINE_CONTENT_NOT_IMAGE');
+  const contentLength = Number(response.headers.get('content-length') ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) throw new Error('LINE_CONTENT_TOO_LARGE');
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength > maxBytes) throw new Error('LINE_CONTENT_TOO_LARGE');
+  return { bytes, contentType };
 }
