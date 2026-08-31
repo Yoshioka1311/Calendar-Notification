@@ -92,7 +92,34 @@ export interface SixMonthFinanceAnalytics {
 }
 
 export interface SlipScanPreview {
-  status: 'not-ready' | 'parsed';
+  status: 'parsed' | 'error';
   message: string;
   imageUri?: string;
+  candidate?: SlipTransactionCandidate;
+}
+
+export interface OCRBlock {
+  text: string;
+}
+
+export interface OCRResult {
+  text: string;
+  blocks?: OCRBlock[];
+}
+
+export interface SlipOCRProvider {
+  recognize(imageUri: string): Promise<OCRResult>;
+}
+
+export interface SlipTransactionCandidate {
+  type: FinanceTransactionType;
+  amount: number;
+  transactionAt: string;
+  provider?: string;
+  sender?: string;
+  receiver?: string;
+  reference?: string;
+  suggestedCategoryId: string;
+  fingerprint: string;
+  confidence: number;
 }

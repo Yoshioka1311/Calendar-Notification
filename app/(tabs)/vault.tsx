@@ -613,7 +613,7 @@ export default function VaultScreen() {
             ],
           }}>
           <Pressable accessibilityRole="button" accessibilityLabel="Tap to unlock Vault" onPress={revealPinEntry}>
-            <VaultHeroLock variant={pinEntryVisible ? 'keyhole' : 'closed'} size={140} />
+            <VaultUnlockIndicator busy={pinBusy} variant={pinEntryVisible ? 'keyhole' : 'closed'} size={140} />
           </Pressable>
         </Animated.View>
         <Text style={[styles.heroTitle, { color: theme.colors.text }]}>Yoshioka Vault</Text>
@@ -639,9 +639,22 @@ export default function VaultScreen() {
             ) : null}
             {lockoutMessage ? <Text style={[styles.errorText, { color: theme.colors.danger }]}>{lockoutMessage}</Text> : null}
             {pinError ? <Text style={[styles.errorText, { color: theme.colors.danger }]}>{pinError}</Text> : null}
-            <Button onPress={unlock} loading={pinBusy} disabled={unlockPin.length !== 6}>
-              Unlock Vault
-            </Button>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={pinBusy ? 'Unlocking Vault' : 'Unlock Vault'}
+              disabled={pinBusy || unlockPin.length !== 6}
+              onPress={() => void unlock()}
+              style={({ pressed }) => [
+                styles.unlockAction,
+                {
+                  backgroundColor: theme.colors.primary,
+                  opacity: unlockPin.length !== 6 ? 0.45 : pressed ? 0.78 : 1,
+                },
+              ]}>
+              <Text style={[styles.unlockActionText, { color: theme.dark ? '#141526' : '#FFFFFF' }]}>
+                {pinBusy ? 'Unlocking...' : 'Unlock Vault'}
+              </Text>
+            </Pressable>
           </Animated.View>
         ) : null}
 
@@ -687,7 +700,9 @@ export default function VaultScreen() {
           />
         ) : null}
 
-        {filteredEntries.length ? filteredEntries.map((entry, index) => (
+        {loading && !entries.length ? (
+          <VaultEntriesSkeleton />
+        ) : filteredEntries.length ? filteredEntries.map((entry, index) => (
           <AnimatedEntryCard key={entry.id} index={index}>
             <Pressable accessibilityRole="button" onPress={() => setDetailEntry(entry)}>
               <Card style={styles.entryCard}>
@@ -790,16 +805,72 @@ export default function VaultScreen() {
   );
 }
 
-function VaultHeroLock({ variant, size }: { variant: 'closed' | 'open' | 'keyhole'; size: number }) {
+function VaultHeroLock({ variant, size, flush = false }: { variant: 'closed' | 'open' | 'keyhole'; size: number; flush?: boolean }) {
   const { theme } = useSettings();
   const iconName = variant === 'open'
     ? { ios: 'lock.open.fill', android: 'lock_open', web: 'lock_open' } as const
     : { ios: 'lock.fill', android: 'lock', web: 'lock' } as const;
   return (
-    <View style={[styles.heroLockWrap, { width: size, height: size, borderRadius: size / 2, backgroundColor: theme.colors.primarySoft }]}>
+    <View style={[styles.heroLockWrap, flush && styles.heroLockFlush, { width: size, height: size, borderRadius: size / 2, backgroundColor: theme.colors.primarySoft }]}>
       <View style={[styles.heroGlow, { backgroundColor: theme.colors.primary }]} />
       <SymbolView name={iconName} tintColor={theme.colors.primary} size={Math.round(size * 0.44)} />
       {variant === 'keyhole' ? <View style={[styles.keyholePulse, { borderColor: theme.colors.primary }]} /> : null}
+    </View>
+  );
+}
+
+function VaultUnlockIndicator({ busy, variant, size }: { busy: boolean; variant: 'closed' | 'keyhole'; size: number }) {
+  const { theme } = useSettings();
+  const spin = useMemo(() => new Animated.Value(0), []);
+  const pulse = useMemo(() => new Animated.Value(1), []);
+
+  useEffect(() => {
+    if (!busy) {
+      spin.stopAnimation();
+      pulse.stopAnimation();
+      spin.setValue(0);
+      pulse.setValue(1);
+      return undefined;
+    }
+    const spinLoop = Animated.loop(Animated.timing(spin, {
+      toValue: 1,
+      duration: 900,
+      easing: Easing.linear,
+      useNativeDriver: true,
+    }));
+    const pulseLoop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1.035, duration: 420, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: 420, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    spinLoop.start();
+    pulseLoop.start();
+    return () => {
+      spinLoop.stop();
+      pulseLoop.stop();
+    };
+  }, [busy, pulse, spin]);
+
+  return (
+    <View style={{ width: size + 18, height: size + 18, alignItems: 'center', justifyContent: 'center' }}>
+      {busy ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.unlockRing,
+            {
+              width: size + 14,
+              height: size + 14,
+              borderRadius: (size + 14) / 2,
+              borderTopColor: theme.colors.primary,
+              borderRightColor: theme.colors.primary,
+              transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }],
+            },
+          ]}
+        />
+      ) : null}
+      <Animated.View style={{ transform: [{ scale: pulse }] }}>
+        <VaultHeroLock flush variant={variant} size={size} />
+      </Animated.View>
     </View>
   );
 }
@@ -924,6 +995,26 @@ function VaultEmptyState({ hasEntries, onAdd }: { hasEntries: boolean; onAdd: ()
         {hasEntries ? 'Try a different search term.' : 'Save a game or platform login securely.'}
       </Text>
       {!hasEntries ? <Button onPress={onAdd} style={styles.emptyButton}>+ Add Vault</Button> : null}
+    </View>
+  );
+}
+
+function VaultEntriesSkeleton() {
+  const { theme } = useSettings();
+  return (
+    <View accessibilityLabel="Loading encrypted Vault entries" style={styles.skeletonList}>
+      {[0, 1].map((item) => (
+        <Card key={item} style={styles.entryCard}>
+          <View style={styles.entryRow}>
+            <View style={[styles.skeletonArtwork, { backgroundColor: theme.colors.primarySoft }]} />
+            <View style={styles.skeletonCopy}>
+              <View style={[styles.skeletonLineShort, { backgroundColor: theme.colors.primarySoft }]} />
+              <View style={[styles.skeletonLine, { backgroundColor: theme.colors.border }]} />
+              <View style={[styles.skeletonLineMedium, { backgroundColor: theme.colors.border }]} />
+            </View>
+          </View>
+        </Card>
+      ))}
     </View>
   );
 }
@@ -1419,6 +1510,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: spacing.lg,
   },
+  heroLockFlush: { marginBottom: 0 },
+  unlockRing: {
+    position: 'absolute',
+    borderWidth: 3,
+    borderLeftColor: 'rgba(158, 147, 255, 0.18)',
+    borderBottomColor: 'rgba(158, 147, 255, 0.18)',
+  },
   heroGlow: {
     position: 'absolute',
     width: '82%',
@@ -1453,6 +1551,14 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: spacing.md,
   },
+  unlockAction: {
+    minHeight: 50,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  unlockActionText: { fontSize: 15, fontWeight: '800' },
   formCard: { gap: spacing.md, width: '100%' },
   headerActions: {
     flexDirection: 'row',
@@ -1481,6 +1587,12 @@ const styles = StyleSheet.create({
   },
   entryCard: { marginBottom: spacing.sm },
   entryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  skeletonList: { paddingTop: spacing.xs },
+  skeletonArtwork: { width: 58, height: 58, borderRadius: 14 },
+  skeletonCopy: { flex: 1, gap: spacing.sm },
+  skeletonLine: { width: '78%', height: 14, borderRadius: 8 },
+  skeletonLineMedium: { width: '55%', height: 11, borderRadius: 8 },
+  skeletonLineShort: { width: 72, height: 10, borderRadius: 8 },
   cover: { width: 54, height: 66, borderRadius: radius.md, backgroundColor: '#1A1A22' },
   fallbackArtwork: { alignItems: 'center', justifyContent: 'center' },
   entryCopy: { flex: 1 },

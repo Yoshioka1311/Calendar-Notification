@@ -2,6 +2,7 @@ import * as Crypto from 'expo-crypto';
 
 import { getDatabase } from '@/services/database';
 import { authenticatedBackendRequest } from '@/services/lineIntegrationService';
+import { getSlipOCRProvider } from '@/services/slipOcrService';
 import type {
   FinanceCategory,
   FinanceSummary,
@@ -18,6 +19,7 @@ import {
   transactionLocalDate,
 } from '@/utils/finance';
 import { toDateKey } from '@/utils/date';
+import { parseThaiSlipText } from '@/utils/thaiSlip';
 
 type FinanceTransactionRow = {
   id: string;
@@ -216,21 +218,32 @@ async function syncFinanceFromBackend(): Promise<void> {
   }
 }
 
-async function getFinanceDashboard(): Promise<{
+async function readLocalFinanceDashboard(): Promise<{
   categories: FinanceCategory[];
   transactions: FinanceTransaction[];
   summary: FinanceSummary;
-  sixMonthAnalytics: SixMonthFinanceAnalytics;
 }> {
-  await syncFinanceFromBackend();
   const [categories, transactions] = await Promise.all([listLocalCategories(), listLocalTransactions()]);
   const today = toDateKey(new Date());
   return {
     categories,
     transactions,
     summary: buildFinanceSummary(transactions, categories, today),
-    sixMonthAnalytics: buildSixMonthFinanceAnalytics(transactions, categories, today),
   };
+}
+
+async function getFinanceDashboard() {
+  return readLocalFinanceDashboard();
+}
+
+async function refreshFinanceDashboard() {
+  await syncFinanceFromBackend();
+  return readLocalFinanceDashboard();
+}
+
+async function getFinanceInsights(): Promise<SixMonthFinanceAnalytics> {
+  const { categories, transactions } = await readLocalFinanceDashboard();
+  return buildSixMonthFinanceAnalytics(transactions, categories, toDateKey(new Date()));
 }
 
 function sanitizeDraft(draft: FinanceTransactionDraft): FinanceTransactionDraft {
@@ -256,7 +269,7 @@ async function createFinanceTransaction(draft: FinanceTransactionDraft): Promise
       'SELECT * FROM finance_transactions WHERE slip_fingerprint = ? LIMIT 1',
       input.slipFingerprint,
     );
-    if (existing) throw new Error('This slip may already be recorded.');
+    if (existing) throw new Error('This transaction may already exist.');
   }
   const now = new Date().toISOString();
   const local: FinanceTransaction = {
@@ -296,15 +309,30 @@ async function createFinanceTransaction(draft: FinanceTransactionDraft): Promise
 }
 
 async function scanSlipImage(imageUri: string): Promise<SlipScanPreview> {
-  return {
-    status: 'not-ready',
-    imageUri,
-    message: 'Slip image was selected, but on-device OCR is not configured in this build yet. No image was uploaded and no transaction was created.',
-  };
+  const startedAt = Date.now();
+  try {
+    const ocrResult = await getSlipOCRProvider().recognize(imageUri);
+    const candidate = await parseThaiSlipText(ocrResult.text);
+    if (__DEV__) console.info(`[perf] slip image to parsed OCR ${Date.now() - startedAt}ms`);
+    return {
+      status: 'parsed',
+      imageUri,
+      candidate,
+      message: 'Review the detected transaction before saving.',
+    };
+  } catch (caught) {
+    return {
+      status: 'error',
+      imageUri,
+      message: caught instanceof Error ? caught.message : 'Unable to read this slip image.',
+    };
+  }
 }
 
 export const financeService = {
   getFinanceDashboard,
+  refreshFinanceDashboard,
+  getFinanceInsights,
   createFinanceTransaction,
   scanSlipImage,
 };

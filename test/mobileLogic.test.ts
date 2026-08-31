@@ -7,6 +7,7 @@ import { calculateReminderDate } from '../utils/reminder.ts';
 import { eventRuntimeStatus, passedEvents, upcomingEvents } from '../utils/eventStatus.ts';
 import { aggregateYearlyProgress, dailyBalanceScore, nutritionDimensions } from '../utils/nutrition.ts';
 import { buildFinanceSummary, buildSixMonthFinanceAnalytics, financeRetentionCutoffIso, FINANCE_CATEGORIES } from '../utils/finance.ts';
+import { parseThaiSlipText } from '../utils/thaiSlip.ts';
 import {
   TEST_VAULT_KDF_PARAMS,
   decryptVaultJson,
@@ -140,6 +141,22 @@ test('builds six-month finance analytics without adding a seventh month', () => 
 
 test('finance retention cutoff is based on transaction date window', () => {
   assert.equal(financeRetentionCutoffIso(new Date('2026-08-27T00:00:00.000Z')).startsWith('2026-02-27'), true);
+});
+
+test('parses a common Thai bank slip into an editable transaction candidate', async () => {
+  const candidate = await parseThaiSlipText(`
+    K PLUS
+    โอนเงินสำเร็จ
+    จำนวนเงิน 320.00 บาท
+    30/08/2569 13:42
+    ไปยัง 7-Eleven
+    เลขที่รายการ KPLUS123456789
+  `);
+  assert.equal(candidate.amount, 320);
+  assert.equal(candidate.provider, 'K PLUS');
+  assert.equal(candidate.transactionAt, '2026-08-30T13:42:00+07:00');
+  assert.equal(candidate.suggestedCategoryId, 'expense-food');
+  assert.equal(candidate.fingerprint.length, 64);
 });
 
 test('vault PIN derives a wrapping key but encrypted entries use a separate master key', async () => {

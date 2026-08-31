@@ -463,12 +463,16 @@ async function saveVaultEntry(masterKeyHex: string, draft: VaultEntryDraft): Pro
   return { ...entry, secret: { ...secret, updatedAt } };
 }
 
-async function listUnlockedEntries(masterKeyHex: string): Promise<VaultUnlockedEntry[]> {
-  await syncVaultFromBackend();
+async function listLocalUnlockedEntries(masterKeyHex: string): Promise<VaultUnlockedEntry[]> {
   const encryptedEntries = await listLocalEncryptedEntries();
   return encryptedEntries
     .map((entry) => decryptEntry(masterKeyHex, entry))
     .filter((entry): entry is VaultUnlockedEntry => Boolean(entry));
+}
+
+async function refreshUnlockedEntries(masterKeyHex: string): Promise<VaultUnlockedEntry[]> {
+  await syncVaultFromBackend();
+  return listLocalUnlockedEntries(masterKeyHex);
 }
 
 async function removeVaultEntry(id: string): Promise<void> {
@@ -516,7 +520,8 @@ export const vaultService = {
   unlockVault,
   changeVaultPin,
   saveVaultEntry,
-  listUnlockedEntries,
+  listLocalUnlockedEntries,
+  refreshUnlockedEntries,
   removeVaultEntry,
   copyPassword,
   searchGames,

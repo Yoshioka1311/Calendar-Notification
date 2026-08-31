@@ -1,4 +1,4 @@
-import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { financeService } from '@/services/financeService';
@@ -22,12 +22,10 @@ function emptySummary(): FinanceSummary {
 }
 
 function emptyAnalytics(): SixMonthFinanceAnalytics {
-  return {
-    months: [],
-    averageMonthlyExpense: 0,
-    categoryTrends: [],
-  };
+  return { months: [], averageMonthlyExpense: 0, categoryTrends: [] };
 }
+
+type FinanceDashboard = Awaited<ReturnType<typeof financeService.getFinanceDashboard>>;
 
 type FinanceContextValue = {
   categories: FinanceCategory[];
@@ -35,9 +33,12 @@ type FinanceContextValue = {
   summary: FinanceSummary;
   sixMonthAnalytics: SixMonthFinanceAnalytics;
   loading: boolean;
+  insightsLoading: boolean;
+  slipScanning: boolean;
   error?: string;
   slipPreview?: SlipScanPreview;
   reload: () => Promise<void>;
+  loadInsights: () => Promise<void>;
   addTransaction: (draft: FinanceTransactionDraft) => Promise<FinanceTransaction>;
   scanSlipImage: (imageUri: string) => Promise<SlipScanPreview>;
   clearSlipPreview: () => void;
@@ -52,51 +53,98 @@ export function FinanceProvider({ children }: PropsWithChildren) {
   const [sixMonthAnalytics, setSixMonthAnalytics] = useState<SixMonthFinanceAnalytics>(emptyAnalytics);
   const [slipPreview, setSlipPreview] = useState<SlipScanPreview>();
   const [loading, setLoading] = useState(true);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [slipScanning, setSlipScanning] = useState(false);
   const [error, setError] = useState<string>();
+  const insightsLoaded = useRef(false);
+
+  const applyDashboard = useCallback((data: FinanceDashboard) => {
+    setCategories(data.categories);
+    setTransactions(data.transactions);
+    setSummary(data.summary);
+  }, []);
+
+  const refreshSilently = useCallback(async () => {
+    try {
+      const data = await financeService.refreshFinanceDashboard();
+      applyDashboard(data);
+      setError(undefined);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Unable to refresh finance data.');
+    }
+  }, [applyDashboard]);
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await financeService.getFinanceDashboard();
-      setCategories(data.categories);
-      setTransactions(data.transactions);
-      setSummary(data.summary);
-      setSixMonthAnalytics(data.sixMonthAnalytics);
+      const data = await financeService.refreshFinanceDashboard();
+      applyDashboard(data);
       setError(undefined);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Unable to load finance data.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyDashboard]);
 
   useEffect(() => {
-    queueMicrotask(() => void reload());
-  }, [reload]);
+    queueMicrotask(async () => {
+      const startedAt = Date.now();
+      try {
+        const local = await financeService.getFinanceDashboard();
+        applyDashboard(local);
+        setError(undefined);
+        if (__DEV__) console.info(`[perf] finance local Today ready ${Date.now() - startedAt}ms`);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'Unable to load finance data.');
+      } finally {
+        setLoading(false);
+      }
+      void refreshSilently();
+    });
+  }, [applyDashboard, refreshSilently]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      if (AppState.currentState === 'active') void reload().catch(() => undefined);
+      if (AppState.currentState === 'active') void refreshSilently();
     }, 60_000);
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void reload().catch(() => undefined);
+      if (state === 'active') void refreshSilently();
     });
     return () => {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [reload]);
+  }, [refreshSilently]);
+
+  const loadInsights = useCallback(async () => {
+    if (insightsLoaded.current || insightsLoading) return;
+    setInsightsLoading(true);
+    try {
+      setSixMonthAnalytics(await financeService.getFinanceInsights());
+      insightsLoaded.current = true;
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, [insightsLoading]);
 
   const addTransaction = useCallback(async (draft: FinanceTransactionDraft) => {
     const transaction = await financeService.createFinanceTransaction(draft);
-    await reload();
+    applyDashboard(await financeService.getFinanceDashboard());
+    insightsLoaded.current = false;
     return transaction;
-  }, [reload]);
+  }, [applyDashboard]);
 
   const scanSlipImage = useCallback(async (imageUri: string) => {
-    const result = await financeService.scanSlipImage(imageUri);
-    setSlipPreview(result);
-    return result;
+    setSlipScanning(true);
+    setSlipPreview(undefined);
+    try {
+      const result = await financeService.scanSlipImage(imageUri);
+      setSlipPreview(result);
+      return result;
+    } finally {
+      setSlipScanning(false);
+    }
   }, []);
 
   const clearSlipPreview = useCallback(() => setSlipPreview(undefined), []);
@@ -107,13 +155,16 @@ export function FinanceProvider({ children }: PropsWithChildren) {
     summary,
     sixMonthAnalytics,
     loading,
+    insightsLoading,
+    slipScanning,
     error,
     slipPreview,
     reload,
+    loadInsights,
     addTransaction,
     scanSlipImage,
     clearSlipPreview,
-  }), [categories, transactions, summary, sixMonthAnalytics, loading, error, slipPreview, reload, addTransaction, scanSlipImage, clearSlipPreview]);
+  }), [categories, transactions, summary, sixMonthAnalytics, loading, insightsLoading, slipScanning, error, slipPreview, reload, loadInsights, addTransaction, scanSlipImage, clearSlipPreview]);
 
   return <FinanceContext.Provider value={value}>{children}</FinanceContext.Provider>;
 }

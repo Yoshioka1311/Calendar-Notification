@@ -2,7 +2,7 @@
   "expo": {
     "name": "Yoshioka",
     "slug": "calander-noti",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "orientation": "portrait",
     "icon": "./assets/branding/bousu-calendar-logo-v2.png",
     "scheme": "calandernoti",
@@ -19,7 +19,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.smartcalendar.reminder",
-      "versionCode": 6,
+      "versionCode": 7,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.SCHEDULE_EXACT_ALARM"
@@ -55,6 +55,15 @@
         {
           "photosPermission": "Yoshioka only reads the slip photo you explicitly choose.",
           "cameraPermission": "Yoshioka uses the camera only when you choose Scan Slip."
+        }
+      ],
+      [
+        "rn-mlkit-ocr",
+        {
+          "ocrModels": [
+            "latin"
+          ],
+          "ocrUseBundled": true
         }
       ],
       "expo-secure-store"
